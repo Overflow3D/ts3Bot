@@ -3,22 +3,25 @@ package main
 import (
 	"encoding/json"
 	"io/ioutil"
-	"log"
+	"sync"
 )
 
-//Config, TeamSpeak 3 bot start up
+//Config , TeamSpeak 3 bot start up
 type Config struct {
 	Login    string `jsong:"Login"`
 	Password string `json:"Password"`
 	ServerID int    `json:"ServerID"`
 }
 
+var wg sync.WaitGroup
+
 func main() {
-	config, err := loadConfig()
-	if err != nil {
-		panic(err)
-	}
-	log.Println(config)
+	// config, err := loadConfig()
+	// if err != nil {
+	// 	panic(err)
+	// }
+	newBot("teamspot.eu:10011")
+	wg.Wait()
 }
 
 func loadConfig() (*Config, error) {

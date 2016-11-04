@@ -16,12 +16,20 @@ type Config struct {
 var wg sync.WaitGroup
 
 func main() {
-	// config, err := loadConfig()
-	// if err != nil {
-	// 	panic(err)
-	// }
-	newBot("teamspot.eu:10011")
+
+	newBot("teamspot.eu:10011", true)
+	bot, ok := bots["master"]
+	if ok {
+
+		bot.writeToCon("use 4")
+		bot.writeToCon("version")
+		bot.writeToCon("channellist")
+
+		// bot.writeToCon("servernotifyregister event=server")
+	}
+
 	wg.Wait()
+
 }
 
 func loadConfig() (*Config, error) {

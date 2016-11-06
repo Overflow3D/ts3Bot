@@ -173,27 +173,31 @@ func (b *Bot) notifyAction(r *Response) {
 	switch r.action {
 	case "notifytextmessage":
 
-		if strings.Index(r.params[0]["msg"], "!q "+b.ID) == 0 {
+		if strings.Index(r.params[0]["msg"], "!quit "+b.ID) == 0 {
 			b.conn.Close()
 		}
+
 		if b.isMaster && strings.Index(r.params[0]["msg"], "!create") == 0 {
 			log.Println("Created by: ", b.ID)
 			newb := newBot("teamspot.eu:10011", false)
 			log.Println("Bot is ", newb.ID, "total of", len(bots), "in system")
 			newb.execAndIgnore(cmdsSub)
 		}
+		//Test function
+		if strings.Index(r.params[0]["msg"], "!info") == 0 {
 
-		if strings.Index(r.params[0]["msg"], "!test") == 0 {
-			rx, e := b.exec(clientDBID("W2Nl8ZpJ20S3RSLoeyKFdLCRuuE="))
-			if e != nil {
-				log.Println(e)
-			}
-			log.Println(rx)
 		}
+
 	case "notifyclientmoved":
-		log.Println("?")
-		// user := users[r.params[0]["clid"]]
-		// user.isMoveExceeded(b)
+		cinfo, e := b.exec(clientInfo(r.params[0]["clid"]))
+		if e != nil {
+			log.Println(e)
+		}
+		user, ok := users[cinfo.params[0]["client_database_id"]]
+		if ok {
+			user.isMoveExceeded(b)
+		}
+
 	case "notifychanneledited":
 		log.Println(r.action)
 	case "notifyclientleftview":
@@ -202,10 +206,10 @@ func (b *Bot) notifyAction(r *Response) {
 		user, ok := users[r.params[0]["client_database_id"]]
 		if ok {
 			user.clid = r.params[0]["clid"]
-		} else {
-			addUser(r.params[0]["client_database_id"], r.params[0]["clid"])
+			return
 		}
-		log.Println(users[r.params[0]["client_database_id"]])
+		addUser(r.params[0]["client_database_id"], r.params[0]["clid"])
+
 	case "notifychanneldescriptionchanged":
 		//In case if I find function for it
 		//Maybe if you are to lazy to add auto checking

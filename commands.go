@@ -128,3 +128,71 @@ func clientDBID(uid string) *Command {
 		flags: []string{"-uid"},
 	}
 }
+
+func createRoom(name string, spacer string) *Command {
+	return &Command{
+		Name: "channelcreate",
+		params: map[string]string{
+			"channel_flag_permanent": "1",
+			"cpid": spacer,
+		},
+	}
+}
+
+func nickname(user string) *Command {
+	return &Command{
+		Name: "clientupdate",
+		params: map[string]string{
+			"client_nickname": user,
+		},
+	}
+}
+
+func clientInfo(clid string) *Command {
+	return &Command{
+		Name: "clientinfo",
+		params: map[string]string{
+			"clid": clid,
+		},
+	}
+}
+
+func clientList() *Command {
+	return &Command{
+		Name: "clientlist",
+	}
+}
+
+func getChannelAdmin(cid string) *Command {
+	return &Command{
+		Name: "channelgroupclientlist",
+		params: map[string]string{
+			"cid":  cid,
+			"cgid": "18",
+		},
+	}
+}
+
+func setChannelAdmin(cldbid string, cid string) *Command {
+	return &Command{
+		Name: "setclientchannelgroup",
+		params: map[string]string{
+			"cgid":   "5",
+			"cid":    cid,
+			"cldbid": cldbid,
+		},
+	}
+}
+
+//targetMode 1-client, 2-channel, 3-server
+//target cid
+func sendMessage(targetMode string, target string, msg string) *Command {
+	return &Command{
+		Name: "sendtextmessage",
+		params: map[string]string{
+			"targetmode": targetMode,
+			"target":     target,
+			"msg":        msg,
+		},
+	}
+}

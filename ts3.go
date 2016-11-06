@@ -30,6 +30,7 @@ func main() {
 	cmdsMain = []*Command{
 		useServer(cfg.ServerID),
 		logIn(cfg.Login, cfg.Password),
+		nickname("SkyNet"),
 		notifyRegister("channel", "0"),
 		notifyRegister("textchannel", "0"),
 		notifyRegister("textprivate", "0"),
@@ -47,6 +48,7 @@ func main() {
 	bot, ok := bots["master"]
 	if ok {
 		bot.execAndIgnore(cmdsMain)
+		bot.loadUsers()
 	}
 
 	wg.Wait()

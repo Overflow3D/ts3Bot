@@ -63,6 +63,9 @@ func newBot(addr string, isMaster bool) *Bot {
 	wg.Add(1)
 	go bot.scanCon(scanCon)
 
+	//Adds separate notify goroutine
+	go bot.notifyRun()
+
 	//Launch goroutine to fetch telnet response
 	go bot.run()
 
@@ -127,26 +130,26 @@ func (b *Bot) run() {
 				if strings.Index(m, "error") == 0 {
 					go b.passError(m)
 					continue
-				}
-
-				if strings.Index(m, "notify") == 0 {
+				} else if strings.Index(m, "notify") == 0 {
 					go b.passNotify(m)
 					continue
 				} else {
 					b.resp = m
 				}
 			}
-			//case notify
-		case n, ok := <-b.notify:
-			if ok {
-				r := formatResponse(n, "notify")
-				b.notifyAction(r)
-			}
 
 		case <-b.stop:
 			return
 		}
 
+	}
+}
+
+func (b *Bot) notifyRun() {
+	for {
+		notificatio := <-b.notify
+		r := formatResponse(notificatio, "notify")
+		b.notifyAction(r)
 	}
 }
 
@@ -177,21 +180,41 @@ func (b *Bot) notifyAction(r *Response) {
 			log.Println("Created by: ", b.ID)
 			newb := newBot("teamspot.eu:10011", false)
 			log.Println("Bot is ", newb.ID, "total of", len(bots), "in system")
-			newb.execAndIgnore(cmds)
+			newb.execAndIgnore(cmdsSub)
+		}
+
+		if strings.Index(r.params[0]["msg"], "!test") == 0 {
+			rx, e := b.exec(clientDBID("W2Nl8ZpJ20S3RSLoeyKFdLCRuuE="))
+			if e != nil {
+				log.Println(e)
+			}
+			log.Println(rx)
 		}
 	case "notifyclientmoved":
-		log.Println(r.action)
+		log.Println("?")
+		// user := users[r.params[0]["clid"]]
+		// user.isMoveExceeded(b)
 	case "notifychanneledited":
 		log.Println(r.action)
 	case "notifyclientleftview":
 		log.Println(r.action)
 	case "notifycliententerview":
-		log.Println(r.action)
+		user, ok := users[r.params[0]["client_database_id"]]
+		if ok {
+			user.clid = r.params[0]["clid"]
+		} else {
+			addUser(r.params[0]["client_database_id"], r.params[0]["clid"])
+		}
+		log.Println(users[r.params[0]["client_database_id"]])
 	case "notifychanneldescriptionchanged":
 		//In case if I find function for it
 		//Maybe if you are to lazy to add auto checking
 		//for how much channel is empty, and you say user
 		//to change date if they use room, otherwise edit
+		return
+	case "notifychannelcreated":
+		return
+	case "notifychannelmoved":
 		return
 	default:
 		log.Println("Unusual action: ", r.action)

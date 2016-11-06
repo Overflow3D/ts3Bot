@@ -15,7 +15,8 @@ type Config struct {
 }
 
 var wg sync.WaitGroup
-var cmds []*Command
+var cmdsMain []*Command
+var cmdsSub []*Command
 
 func main() {
 	// After cloning the git you need to create config.json file
@@ -26,19 +27,26 @@ func main() {
 		log.Println(err)
 	}
 	//Basic commands to start off bot
-	cmds = []*Command{
+	cmdsMain = []*Command{
 		useServer(cfg.ServerID),
 		logIn(cfg.Login, cfg.Password),
-		notifyRegister("channel"),
-		notifyRegister("textchannel"),
-		notifyRegister("server"),
-		notifyRegister("textprivate"),
+		notifyRegister("channel", "0"),
+		notifyRegister("textchannel", "0"),
+		notifyRegister("textprivate", "0"),
+	}
+
+	cmdsSub = []*Command{
+		useServer(cfg.ServerID),
+		logIn(cfg.Login, cfg.Password),
+		notifyRegister("channel", ""),
+		notifyRegister("textchannel", ""),
+		notifyRegister("textprivate", ""),
 	}
 
 	newBot("teamspot.eu:10011", true)
 	bot, ok := bots["master"]
 	if ok {
-		bot.execAndIgnore(cmds)
+		bot.execAndIgnore(cmdsMain)
 	}
 
 	wg.Wait()

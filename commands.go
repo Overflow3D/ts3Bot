@@ -90,12 +90,41 @@ func channelList() *Command {
 	}
 }
 
-func notifyRegister(e string) *Command {
+func notifyRegister(e string, id string) *Command {
+	if id != "" {
+		return &Command{
+			Name: "servernotifyregister",
+			params: map[string]string{
+				"event": e,
+				"id":    id, //register to channel 0, for more events
+			},
+		}
+	}
 	return &Command{
 		Name: "servernotifyregister",
 		params: map[string]string{
 			"event": e,
-			"id":    "0",
 		},
+	}
+}
+
+func kickClient(clid string, reason string) *Command {
+	return &Command{
+		Name: "clientkick",
+		params: map[string]string{
+			"clid":      clid,
+			"reasonid":  "5",
+			"reasonmsg": reason,
+		},
+	}
+}
+
+func clientDBID(uid string) *Command {
+	return &Command{
+		Name: "clientdbfind",
+		params: map[string]string{
+			"pattern": uid,
+		},
+		flags: []string{"-uid"},
 	}
 }

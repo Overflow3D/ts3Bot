@@ -51,9 +51,12 @@ func (b *Bot) execAndIgnore(cmd []*Command) {
 
 }
 
-func version() *Command {
+func useServer(id string) *Command {
 	return &Command{
 		Name: "use 4",
+		params: map[string]string{
+			"sid": id,
+		},
 	}
 }
 

@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"io/ioutil"
+	"log"
 	"sync"
 )
 
@@ -10,14 +11,21 @@ import (
 type Config struct {
 	Login    string `jsong:"Login"`
 	Password string `json:"Password"`
-	ServerID int    `json:"ServerID"`
+	ServerID string `json:"ServerID"`
 }
 
 var wg sync.WaitGroup
 
 func main() {
+	// After cloning the git you need to create config.json file
+	// If you want to use loadConfig function, otherwise you will get an error
+	cfg, err := loadConfig()
+	if err != nil {
+		log.Println(err)
+	}
 	cmds := []*Command{
-		version(),
+		useServer(cfg.ServerID),
+		logIn(cfg.Login, cfg.Password),
 	}
 
 	newBot("teamspot.eu:10011", true)

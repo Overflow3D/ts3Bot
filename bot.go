@@ -26,6 +26,7 @@ type Response struct {
 	params []map[string]string
 }
 
+//TSerror , prase string errot into Error()
 type TSerror struct {
 	id  string
 	msg string
@@ -61,10 +62,11 @@ func newBot(addr string, isMaster bool) {
 	go bot.run()
 
 	if isMaster {
+		bot.ID = "master"
 		bots["master"] = bot
 		return
 	}
-
+	bot.ID = "xxx"
 	bots["xxx"] = bot
 
 }
@@ -143,7 +145,7 @@ func formatResponse(s string, action string) *Response {
 	r := &Response{}
 
 	var splitResponse []string
-	if action == "c" {
+	if action == "cmd" {
 		r.action = "Cmd_Response"
 		splitResponse = strings.Split(s, "|")
 	} else {

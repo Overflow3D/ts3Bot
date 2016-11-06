@@ -15,31 +15,37 @@ type Config struct {
 }
 
 var wg sync.WaitGroup
+var cmds []*Command
 
 func main() {
 	// After cloning the git you need to create config.json file
 	// If you want to use loadConfig function, otherwise you will get an error
+
 	cfg, err := loadConfig()
 	if err != nil {
 		log.Println(err)
 	}
-	cmds := []*Command{
+	//Basic commands to start off bot
+	cmds = []*Command{
 		useServer(cfg.ServerID),
 		logIn(cfg.Login, cfg.Password),
+		notifyRegister("channel"),
+		notifyRegister("textchannel"),
+		notifyRegister("server"),
+		notifyRegister("textprivate"),
 	}
 
 	newBot("teamspot.eu:10011", true)
 	bot, ok := bots["master"]
 	if ok {
 		bot.execAndIgnore(cmds)
-		// bot.writeToCon("channellist")
-		// bot.writeToCon("servernotifyregister event=server")
 	}
 
 	wg.Wait()
 
 }
 
+//Loading config from json file
 func loadConfig() (*Config, error) {
 	cfg := &Config{}
 	config, err := ioutil.ReadFile("./config.json")
@@ -53,6 +59,7 @@ func loadConfig() (*Config, error) {
 	return cfg, nil
 }
 
+//Unmarshaling json into Cofig struct
 func (c *Config) unMarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &c)
 }

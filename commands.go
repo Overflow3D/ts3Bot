@@ -13,22 +13,24 @@ type Command struct {
 	flags  []string
 }
 
+//Converts struct to string
 func (c *Command) String() (cmd string) {
 	var b bytes.Buffer
 	b.WriteString(c.Name + " ")
 	for key, v := range c.params {
 		b.WriteString(key + "=")
-		b.WriteString(v + " ")
+		b.WriteString(escape(v) + " ")
 	}
 
 	for _, v := range c.flags {
-		b.WriteString(v + " ")
+		b.WriteString(escape(v) + " ")
 	}
 
 	return b.String()
 }
 
-func (b *Bot) exec(cmd Command) (*Response, error) {
+//Exec single command
+func (b *Bot) exec(cmd *Command) (*Response, error) {
 	fmt.Fprintf(b.conn, "%s\n\r", cmd)
 	err := <-b.err
 	res := b.resp
@@ -36,6 +38,7 @@ func (b *Bot) exec(cmd Command) (*Response, error) {
 	return formatResponse(res, "cmd"), formatError(err)
 }
 
+//Exec multiple commands and ignore output silently
 func (b *Bot) execAndIgnore(cmd []*Command) {
 	for _, c := range cmd {
 		fmt.Fprintf(b.conn, "%s\n\r", c)
@@ -51,6 +54,17 @@ func (b *Bot) execAndIgnore(cmd []*Command) {
 
 }
 
+//Useless version as dummy ping
+//Not useless if you want to upgrade ts automaticly
+//But then you can change the code =)
+func version() *Command {
+	return &Command{
+		Name: "version",
+	}
+}
+
+//DEFAULT TEAMSPEAK3 COMMANDS
+
 func useServer(id string) *Command {
 	return &Command{
 		Name: "use 4",
@@ -60,12 +74,28 @@ func useServer(id string) *Command {
 	}
 }
 
-func logIn(l string, p string) *Command {
+func logIn(login string, pass string) *Command {
 	return &Command{
 		Name: "login",
 		params: map[string]string{
-			"client_login_name":     l,
-			"client_login_password": p,
+			"client_login_name":     login,
+			"client_login_password": pass,
+		},
+	}
+}
+
+func channelList() *Command {
+	return &Command{
+		Name: "channellist",
+	}
+}
+
+func notifyRegister(e string) *Command {
+	return &Command{
+		Name: "servernotifyregister",
+		params: map[string]string{
+			"event": e,
+			"id":    "0",
 		},
 	}
 }

@@ -7,17 +7,20 @@ import (
 	"log"
 	"net"
 	"strings"
+	"time"
 )
 
 //Bot , is a bot struct
 type Bot struct {
-	ID     string
-	conn   net.Conn
-	output chan string
-	err    chan string
-	notify chan string
-	stop   chan int
-	resp   string
+	ID       string
+	conn     net.Conn
+	output   chan string
+	err      chan string
+	notify   chan string
+	stop     chan int
+	stopPing chan struct{}
+	isMaster bool
+	resp     string
 }
 
 //Response , represents telnet response
@@ -38,7 +41,8 @@ func (e TSerror) Error() string {
 
 var bots = make(map[string]*Bot)
 
-func newBot(addr string, isMaster bool) {
+//Creating new bot
+func newBot(addr string, isMaster bool) *Bot {
 	bot := new(Bot)
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
@@ -53,6 +57,7 @@ func newBot(addr string, isMaster bool) {
 	bot.err = make(chan string)
 	bot.notify = make(chan string)
 	bot.stop = make(chan int)
+	bot.stopPing = make(chan struct{})
 
 	//Launch goroutine for bot's connection scanner
 	wg.Add(1)
@@ -61,27 +66,50 @@ func newBot(addr string, isMaster bool) {
 	//Launch goroutine to fetch telnet response
 	go bot.run()
 
+	//Launches ping
+	go bot.pingCon()
+
 	if isMaster {
 		bot.ID = "master"
-		bots["master"] = bot
-		return
+		bots[bot.ID] = bot
+		bot.isMaster = true
+		return bot
 	}
-	bot.ID = "xxx"
-	bots["xxx"] = bot
+	bot.ID = randString(5)
+	bots[bot.ID] = bot
+
+	return bot
 
 }
 
 func (b *Bot) scanCon(s *bufio.Scanner) {
-	defer func() {
-		log.Println("Bot: ", b.ID, "stopped his work.")
-		b.stop <- 1
-		wg.Done()
-	}()
+	defer b.cleanUp()
 
 	for {
 		s.Scan()
 		b.output <- s.Text()
+		//Checks if connection is openned or any other error
+		e := s.Err()
+		if e != nil {
+			return
+		}
 	}
+}
+
+//Cleans up after closing bot
+func (b *Bot) cleanUp() {
+	b.stop <- 1
+	close(b.output)
+	delete(bots, b.ID)
+	if b.ID == "master" {
+		for bot := range bots {
+			i := bots[bot]
+			i.conn.Close()
+		}
+	}
+	log.Println("Bot", b.ID, "stopped his work.")
+	close(b.stopPing)
+	wg.Done()
 }
 
 func (b *Bot) run() {
@@ -109,9 +137,10 @@ func (b *Bot) run() {
 				}
 			}
 			//case notify
-		case x, ok := <-b.notify:
+		case n, ok := <-b.notify:
 			if ok {
-				log.Println(x)
+				r := formatResponse(n, "notify")
+				b.notifyAction(r)
 			}
 
 		case <-b.stop:
@@ -119,6 +148,56 @@ func (b *Bot) run() {
 		}
 
 	}
+}
+
+//Start pinger for bot
+func (b *Bot) pingCon() {
+	ticker := time.NewTicker(300 * time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			b.writeToCon("version")
+		case <-b.stopPing:
+			ticker.Stop()
+			log.Println("Stop ping")
+			return
+		}
+	}
+}
+
+//Switcher for actions functions
+func (b *Bot) notifyAction(r *Response) {
+	switch r.action {
+	case "notifytextmessage":
+
+		if strings.Index(r.params[0]["msg"], "!q "+b.ID) == 0 {
+			b.conn.Close()
+		}
+		if b.isMaster && strings.Index(r.params[0]["msg"], "!create") == 0 {
+			log.Println("Created by: ", b.ID)
+			newb := newBot("teamspot.eu:10011", false)
+			log.Println("Bot is ", newb.ID, "total of", len(bots), "in system")
+			newb.execAndIgnore(cmds)
+		}
+	case "notifyclientmoved":
+		log.Println(r.action)
+	case "notifychanneledited":
+		log.Println(r.action)
+	case "notifyclientleftview":
+		log.Println(r.action)
+	case "notifycliententerview":
+		log.Println(r.action)
+	case "notifychanneldescriptionchanged":
+		//In case if I find function for it
+		//Maybe if you are to lazy to add auto checking
+		//for how much channel is empty, and you say user
+		//to change date if they use room, otherwise edit
+		return
+	default:
+		log.Println("Unusual action: ", r.action)
+		return
+	}
+
 }
 
 func (b *Bot) passNotify(notify string) {
@@ -129,18 +208,13 @@ func (b *Bot) passError(err string) {
 	b.err <- err
 }
 
+//Mostly for pings, so you don't read
+//Goroutine channels
 func (b *Bot) writeToCon(s string) {
 	fmt.Fprintf(b.conn, "%s\n\r", s)
-	err := <-b.err
-	res := b.resp
-	if res == "" {
-		return
-	}
-
-	log.Println(formatResponse(res, "c"))
-	log.Println(formatError(err))
 }
 
+//Formats output from telnet into Reponse struct
 func formatResponse(s string, action string) *Response {
 	r := &Response{}
 
@@ -173,6 +247,7 @@ func formatResponse(s string, action string) *Response {
 	return r
 }
 
+//Converts telnet error string to error struct
 func formatError(s string) error {
 	e := &TSerror{}
 	errorSplit := strings.Split(s, " ")
@@ -197,6 +272,7 @@ func formatError(s string) error {
 	return nil
 }
 
+//Scans telnet output from connection
 func scan(data []byte, atEOF bool) (advance int, token []byte, err error) {
 	if atEOF && len(data) == 0 {
 		return 0, nil, nil

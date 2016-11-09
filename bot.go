@@ -3,11 +3,14 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"errors"
 	"fmt"
 	"log"
 	"net"
 	"strings"
 	"time"
+
+	_db "github.com/overflow3d/ts3_/database"
 )
 
 //Bot , is a bot struct
@@ -21,6 +24,7 @@ type Bot struct {
 	stopPing chan struct{}
 	isMaster bool
 	resp     string
+	db       _db.Datastore
 }
 
 //Response , represents telnet response
@@ -42,46 +46,49 @@ func (e TSerror) Error() string {
 var bots = make(map[string]*Bot)
 
 //Creating new bot
-func newBot(addr string, isMaster bool) *Bot {
-	bot := new(Bot)
+func (b *Bot) newBot(addr string, isMaster bool) error {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
 		log.Println(err)
 	}
 
-	bot.conn = conn
+	b.conn = conn
 
-	scanCon := bufio.NewScanner(bot.conn)
+	scanCon := bufio.NewScanner(b.conn)
 	scanCon.Split(scan)
-	bot.output = make(chan string)
-	bot.err = make(chan string)
-	bot.notify = make(chan string)
-	bot.stop = make(chan int)
-	bot.stopPing = make(chan struct{})
+
+	//Makes all bot channels
+	b.makeChannels()
 
 	//Launch goroutine for bot's connection scanner
 	wg.Add(1)
-	go bot.scanCon(scanCon)
+	go b.scanCon(scanCon)
 
 	//Adds separate notify goroutine
-	go bot.notifyRun()
+	go b.notifyRun()
 
 	//Launch goroutine to fetch telnet response
-	go bot.run()
+	go b.run()
 
 	//Launches ping
-	go bot.pingCon()
+	go b.pingCon()
 
 	if isMaster {
-		bot.ID = "master"
-		bots[bot.ID] = bot
-		bot.isMaster = true
-		return bot
+		b.ID = "master"
+		bots[b.ID] = b
+		b.isMaster = true
+		return nil
 	}
-	bot.ID = randString(5)
-	bots[bot.ID] = bot
 
-	return bot
+	master, ok := bots["master"]
+	if !ok {
+		return errors.New("Couldn't copy database")
+	}
+
+	b.ID = randString(5)
+	bots[b.ID] = b
+	b.db = master.db
+	return nil
 
 }
 
@@ -99,11 +106,19 @@ func (b *Bot) scanCon(s *bufio.Scanner) {
 	}
 }
 
+func (b *Bot) makeChannels() {
+	b.output = make(chan string)
+	b.err = make(chan string)
+	b.notify = make(chan string)
+	b.stop = make(chan int)
+	b.stopPing = make(chan struct{})
+}
+
 //Cleans up after closing bot
 func (b *Bot) cleanUp() {
 	b.stop <- 1
 	close(b.output)
-	delete(bots, b.ID)
+	close(b.stopPing)
 	if b.ID == "master" {
 		for bot := range bots {
 			i := bots[bot]
@@ -111,7 +126,6 @@ func (b *Bot) cleanUp() {
 		}
 	}
 	log.Println("Bot", b.ID, "stopped his work.")
-	close(b.stopPing)
 	wg.Done()
 }
 
@@ -128,10 +142,10 @@ func (b *Bot) run() {
 				}
 
 				if strings.Index(m, "error") == 0 {
-					go b.passError(m)
+					b.passError(m)
 					continue
 				} else if strings.Index(m, "notify") == 0 {
-					go b.passNotify(m)
+					b.passNotify(m)
 					continue
 				} else {
 					b.resp = m
@@ -172,20 +186,27 @@ func (b *Bot) pingCon() {
 func (b *Bot) notifyAction(r *Response) {
 	switch r.action {
 	case "notifytextmessage":
-
 		if strings.Index(r.params[0]["msg"], "!quit "+b.ID) == 0 {
 			b.conn.Close()
 		}
 
 		if b.isMaster && strings.Index(r.params[0]["msg"], "!create") == 0 {
 			log.Println("Created by: ", b.ID)
-			newb := newBot("teamspot.eu:10011", false)
+			newb := &Bot{}
+			err := newb.newBot("teamspot.eu:10011", false)
+			if err != nil {
+				log.Println(err)
+				return
+			}
 			log.Println("Bot is ", newb.ID, "total of", len(bots), "in system")
 			newb.execAndIgnore(cmdsSub)
 		}
 		//Test function
-		if strings.Index(r.params[0]["msg"], "!info") == 0 {
-
+		if b.isMaster && strings.Index(r.params[0]["msg"], "!admin") == 0 {
+			name := strings.SplitN(r.params[0]["msg"], " ", 2)
+			if len(name) == 2 {
+				addAdmin(name[1], b)
+			}
 		}
 
 	case "notifyclientmoved":
@@ -195,7 +216,9 @@ func (b *Bot) notifyAction(r *Response) {
 		}
 		user, ok := users[cinfo.params[0]["client_database_id"]]
 		if ok {
-			user.isMoveExceeded(b)
+			if !user.IsAdmin {
+				user.isMoveExceeded(b)
+			}
 		}
 
 	case "notifychanneledited":
@@ -205,7 +228,7 @@ func (b *Bot) notifyAction(r *Response) {
 	case "notifycliententerview":
 		user, ok := users[r.params[0]["client_database_id"]]
 		if ok {
-			user.clid = r.params[0]["clid"]
+			user.Clid = r.params[0]["clid"]
 			return
 		}
 		addUser(r.params[0]["client_database_id"], r.params[0]["clid"])
@@ -292,10 +315,9 @@ func formatError(s string) error {
 		}
 
 	}
-	if e.id != "0" && e.id == "" {
+	if e.id != "0" && e.id != "" {
 		return e
 	}
-
 	return nil
 }
 

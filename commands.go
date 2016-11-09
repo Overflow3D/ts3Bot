@@ -45,6 +45,7 @@ func (b *Bot) execAndIgnore(cmd []*Command) {
 		err := <-b.err
 		b.resp = ""
 		if formatError(err) != nil {
+			log.Println(c)
 			log.Println(err)
 			return
 		}
@@ -119,13 +120,13 @@ func kickClient(clid string, reason string) *Command {
 	}
 }
 
-func clientDBID(uid string) *Command {
+func clientDBID(uid string, flag string) *Command {
 	return &Command{
 		Name: "clientdbfind",
 		params: map[string]string{
 			"pattern": uid,
 		},
-		flags: []string{"-uid"},
+		flags: []string{flag},
 	}
 }
 
@@ -193,6 +194,15 @@ func sendMessage(targetMode string, target string, msg string) *Command {
 			"targetmode": targetMode,
 			"target":     target,
 			"msg":        msg,
+		},
+	}
+}
+
+func clientFind(user string) *Command {
+	return &Command{
+		Name: "clientfind",
+		params: map[string]string{
+			"pattern": user,
 		},
 	}
 }

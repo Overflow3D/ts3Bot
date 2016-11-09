@@ -5,6 +5,8 @@ import (
 	"io/ioutil"
 	"log"
 	"sync"
+
+	_db "github.com/overflow3d/ts3_/database"
 )
 
 //Config , TeamSpeak 3 bot start up
@@ -39,16 +41,27 @@ func main() {
 	cmdsSub = []*Command{
 		useServer(cfg.ServerID),
 		logIn(cfg.Login, cfg.Password),
-		notifyRegister("channel", ""),
 		notifyRegister("textchannel", ""),
 		notifyRegister("textprivate", ""),
 	}
 
-	newBot("teamspot.eu:10011", true)
+	b := &Bot{}
+	db, err := _db.NewConn()
+	defer db.Close()
+	if err != nil {
+		log.Println(err)
+	}
+	db.AddNewUser()
+	b.db = db
+	err = b.newBot("teamspot.eu:10011", true)
+	if err != nil {
+		log.Println(err)
+	}
 	bot, ok := bots["master"]
 	if ok {
 		bot.execAndIgnore(cmdsMain)
 		bot.loadUsers()
+		db.LoadUserFromDB()
 	}
 
 	wg.Wait()

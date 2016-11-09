@@ -61,7 +61,6 @@ func main() {
 	if ok {
 		bot.execAndIgnore(cmdsMain)
 		bot.loadUsers()
-		db.LoadUserFromDB()
 	}
 
 	wg.Wait()

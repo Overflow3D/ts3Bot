@@ -1,4 +1,4 @@
-package db
+package database
 
 import (
 	"encoding/json"
@@ -15,8 +15,8 @@ type DB struct {
 
 //Datastore , db interface
 type Datastore interface {
-	AddNewUser()
-	LoadUserFromDB() map[string]*UserDB
+	AddNewUser(clid string, clidb string)
+	LoadUserFromDB() map[string][]byte
 	Close()
 }
 
@@ -53,25 +53,9 @@ func (db *DB) GetUser(clidb string) ([]byte, error) {
 	return data, nil
 }
 
-//UserDB , ...
-type UserDB struct {
-	Clidb   string
-	Clid    string
-	Moves   *Moves
-	Perm    int
-	IsAdmin bool
-}
-
-//Moves , how much time user moved
-type Moves struct {
-	Number    int
-	SinceMove time.Time
-	Warnings  int
-}
-
 //LoadUserFromDB , load users from db
-func (db *DB) LoadUserFromDB() map[string]*UserDB {
-	users := make(map[string]*UserDB)
+func (db *DB) LoadUserFromDB() map[string][]byte {
+	users := make(map[string][]byte)
 	err := db.conn.View(func(tx *bolt.Tx) error {
 
 		b := tx.Bucket([]byte("users"))
@@ -79,13 +63,8 @@ func (db *DB) LoadUserFromDB() map[string]*UserDB {
 		c := b.Cursor()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
-			user := &UserDB{}
 			key := string(k)
-			err := user.unMarshalJSON(v)
-			if err != nil {
-				return err
-			}
-			users[key] = user
+			users[key] = v
 
 		}
 
@@ -99,25 +78,38 @@ func (db *DB) LoadUserFromDB() map[string]*UserDB {
 }
 
 //AddNewUser , adduser to db
-func (db *DB) AddNewUser() {
+func (db *DB) AddNewUser(clid string, clidb string) {
 	err := db.conn.Update(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists([]byte("users"))
 		if err != nil {
 			return err
 		}
 
-		user := &UserDB{
-			Clidb: "666",
-			Clid:  "55",
-			Moves: &Moves{
-				Number:    0,
-				SinceMove: time.Now(),
-				Warnings:  0,
-			},
-			Perm:    111,
-			IsAdmin: false,
+		moves := struct {
+			Number    int
+			SinceMove time.Time
+			Warnings  int
+		}{
+			0,
+			time.Now(),
+			0,
 		}
-		data, errx := user.marshalJSON()
+
+		user := struct {
+			Clidb   string
+			Clid    string
+			Moves   interface{}
+			Perm    int
+			IsAdmin bool
+		}{
+			clid,
+			clidb,
+			moves,
+			1,
+			false,
+		}
+
+		data, errx := marshalJSON(user)
 		if errx != nil {
 			return errx
 		}
@@ -133,10 +125,6 @@ func (db *DB) AddNewUser() {
 	}
 }
 
-func (u *UserDB) unMarshalJSON(data []byte) error {
-	return json.Unmarshal(data, &u)
-}
-
-func (u *UserDB) marshalJSON() ([]byte, error) {
-	return json.Marshal(&u)
+func marshalJSON(v interface{}) ([]byte, error) {
+	return json.Marshal(v)
 }

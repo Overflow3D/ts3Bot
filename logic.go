@@ -1,10 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"log"
 	"time"
+
+	"github.com/overflow3d/ts3_/logger"
 )
 
+//User , ...
 type User struct {
 	Clidb   string
 	Clid    string
@@ -51,18 +55,37 @@ func newUser(dbID string, clid string) *User {
 
 func (b *Bot) loadUsers() {
 	lists, e := b.exec(clientList())
-	usersOnTeamSpeak := make(map[string]*User)
+	// usersOnTeamSpeak := make(map[string]*User)
 	if e != nil {
 		log.Println(e)
 	}
-	var i int
-	for _, list := range lists.params {
-		if list["client_database_id"] != "1" && list["client_database_id"] != "" {
-			usersOnTeamSpeak[list["client_database_id"]] = newUser(list["client_database_id"], list["clid"])
-			i++
+	userList := b.db.LoadUserFromDB()
+	var updateUser int
+	var addedUser int
+	for _, userTS := range lists.params {
+		if userTS["client_database_id"] != "1" && userTS["client_database_id"] != "" {
+			for key, userDB := range userList {
+				if key == userTS["client_database_id"] {
+					user := &User{}
+					err := user.unmarshalJSON(userDB)
+					if err != nil {
+						log.Println("error")
+					}
+					user.Clid = userTS["clid"]
+					users[user.Clidb] = user
+					updateUser++
+				} else {
+					users[userTS["client_database_id"]] = newUser(userTS["client_database_id"], userTS["clid"])
+					//b.db.AddNewUser(userTS["client_database_id"], userTS["clid"])
+					addedUser++
+				}
+
+			}
+
 		}
 	}
-	log.Println("Loaded ", i, "users")
+	log.Println("Updated ", updateUser, "and added", addedUser, "users")
+	log.Println("wielkosc mapy:", countUsers())
 }
 
 func (u *User) incrementMoves() {
@@ -86,7 +109,7 @@ func (u *User) isMoveExceeded(b *Bot) bool {
 func addAdmin(usr string, bot *Bot) {
 	r, e := bot.exec(clientDBID(usr, ""))
 	if e != nil {
-		log.Println(e)
+		logger.Error(e)
 		return
 	}
 
@@ -100,4 +123,8 @@ func addAdmin(usr string, bot *Bot) {
 
 func countUsers() int {
 	return len(users)
+}
+
+func (u *User) unmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &u)
 }

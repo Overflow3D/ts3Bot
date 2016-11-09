@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	_db "github.com/overflow3d/ts3_/database"
+	"github.com/overflow3d/ts3_/database"
 )
 
 //Bot , is a bot struct
@@ -24,7 +24,7 @@ type Bot struct {
 	stopPing chan struct{}
 	isMaster bool
 	resp     string
-	db       _db.Datastore
+	db       database.Datastore
 }
 
 //Response , represents telnet response

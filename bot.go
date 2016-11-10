@@ -190,6 +190,30 @@ func (b *Bot) notifyAction(r *Response) {
 			b.conn.Close()
 		}
 
+		if b.isMaster && strings.Index(r.params[0]["msg"], "!room") == 0 {
+			room := strings.SplitN(r.params[0]["msg"], " ", 2)
+			if len(room) == 2 {
+				go func() {
+					cid := b.newRoom(room[1], "595", true, 0)
+					if cid != "" {
+						b.newRoom("", cid, false, 2)
+					}
+					client, err := b.exec(clientDBID(room[1], ""))
+					if err != nil {
+						log.Println(err)
+						return
+					}
+					log.Println(client.params)
+					_, errC := b.exec(setChannelAdmin(client.params[0]["cldbid"], cid))
+					if errC != nil {
+						log.Println(errC)
+					}
+
+				}()
+
+			}
+		}
+
 		if b.isMaster && strings.Index(r.params[0]["msg"], "!create") == 0 {
 			log.Println("Created by: ", b.ID)
 			newb := &Bot{}
@@ -224,15 +248,30 @@ func (b *Bot) notifyAction(r *Response) {
 	case "notifychanneledited":
 		log.Println(r.action)
 	case "notifyclientleftview":
-		log.Println(r.action)
+		log.Println(r)
+		if r.params[0]["reasonid"] == "5" {
+			log.Println("Kick from server")
+			log.Println(r.params[0]["invokerid"], r.params[0]["invokername"])
+		}
+		if r.params[0]["reasonid"] == "6" {
+			log.Println("Ban from a server")
+			log.Println(r.params[0]["invokerid"], r.params[0]["invokername"])
+		}
+		if r.params[0]["reasonid"] == "4" {
+			log.Println("Kick from channel")
+			log.Println(r.params[0]["invokerid"], r.params[0]["invokername"])
+		}
 	case "notifycliententerview":
 		user, ok := users[r.params[0]["client_database_id"]]
 		if ok {
 			user.Clid = r.params[0]["clid"]
+			if time.Since(user.Moves.SinceMove).Seconds() > 600 {
+				user.Moves.Number = 0
+			}
 			return
 		}
 		addUser(r.params[0]["client_database_id"], r.params[0]["clid"])
-
+		//b.db.AddNewUser(r.params[0]["client_database_id"], r.params[0]["clid"])
 	case "notifychanneldescriptionchanged":
 		//In case if I find function for it
 		//Maybe if you are to lazy to add auto checking

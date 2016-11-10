@@ -51,7 +51,6 @@ func main() {
 	if err != nil {
 		log.Println(err)
 	}
-	db.AddNewUser()
 	b.db = db
 	err = b.newBot("teamspot.eu:10011", true)
 	if err != nil {
@@ -61,6 +60,7 @@ func main() {
 	if ok {
 		bot.execAndIgnore(cmdsMain)
 		bot.loadUsers()
+		bot.getChannelList()
 	}
 
 	wg.Wait()

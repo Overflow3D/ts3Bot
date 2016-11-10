@@ -31,6 +31,7 @@ func (c *Command) String() (cmd string) {
 
 //Exec single command
 func (b *Bot) exec(cmd *Command) (*Response, error) {
+
 	fmt.Fprintf(b.conn, "%s\n\r", cmd)
 	err := <-b.err
 	res := b.resp
@@ -130,12 +131,13 @@ func clientDBID(uid string, flag string) *Command {
 	}
 }
 
-func createRoom(name string, spacer string) *Command {
+func createRoom(name string, pid string) *Command {
 	return &Command{
 		Name: "channelcreate",
 		params: map[string]string{
+			"channel_name":           name,
 			"channel_flag_permanent": "1",
-			"cpid": spacer,
+			"cpid": pid,
 		},
 	}
 }
@@ -178,7 +180,7 @@ func setChannelAdmin(cldbid string, cid string) *Command {
 	return &Command{
 		Name: "setclientchannelgroup",
 		params: map[string]string{
-			"cgid":   "5",
+			"cgid":   "18",
 			"cid":    cid,
 			"cldbid": cldbid,
 		},

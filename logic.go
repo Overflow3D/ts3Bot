@@ -3,9 +3,8 @@ package main
 import (
 	"encoding/json"
 	"log"
+	"strconv"
 	"time"
-
-	"github.com/overflow3d/ts3_/logger"
 )
 
 //User , ...
@@ -109,7 +108,7 @@ func (u *User) isMoveExceeded(b *Bot) bool {
 func addAdmin(usr string, bot *Bot) {
 	r, e := bot.exec(clientDBID(usr, ""))
 	if e != nil {
-		logger.Error(e)
+		log.Println(e)
 		return
 	}
 
@@ -119,6 +118,91 @@ func addAdmin(usr string, bot *Bot) {
 		log.Println("user was set as an Admin")
 	}
 
+}
+
+type Channel struct {
+	Cid        string
+	Spacer     string
+	Name       string
+	OwnerDB    string
+	CreateDate time.Time
+	Childs     []string
+	Admins     []string
+}
+
+var channels map[string]*Channel
+
+func (b *Bot) getChannelList() {
+	chList := make(map[string]*Channel)
+	start := time.Now()
+	defer func() {
+		log.Println("Loaded ", len(chList), "rooms in ", time.Since(start))
+	}()
+	log.Println("Loading rooms")
+
+	channel := &Channel{}
+	cl, err := b.exec(channelList())
+	if err != nil {
+		log.Println(err)
+		return
+	}
+	spacers := []string{"595", "639"}
+	for _, vMain := range cl.params {
+
+		for _, spacer := range spacers {
+
+			if vMain["pid"] == spacer {
+				var admins []string
+				channel.Spacer = spacer
+				channel.Cid = vMain["cid"]
+				channel.Name = vMain["channel_name"]
+				channel.CreateDate = time.Now()
+				adminList, err := b.exec(getChannelAdmin(vMain["cid"]))
+				if err != nil {
+					admins = []string{}
+				} else {
+					//Return clidb
+					for _, admin := range adminList.params {
+						admins = append(admins, admin["clidb"])
+					}
+				}
+				var child []string
+
+				for _, vSub := range cl.params {
+					if vMain["cid"] == vSub["pid"] {
+						child = append(child, vSub["cid"])
+					}
+				}
+
+				channel.Childs = child
+				chList[vMain["cid"]] = channel
+
+			}
+
+		}
+
+	}
+
+}
+
+func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) string {
+	if !isMain {
+		for i := 1; i <= subRooms; i++ {
+			_, err := b.exec(createRoom("Pokój "+strconv.Itoa(i), pid))
+			if err != nil {
+				log.Println(err)
+			}
+
+		}
+		return ""
+	}
+
+	cid, err := b.exec(createRoom(name, pid))
+	if err != nil {
+		log.Println(err)
+	}
+	log.Println(cid)
+	return cid.params[0]["cid"]
 }
 
 func countUsers() int {

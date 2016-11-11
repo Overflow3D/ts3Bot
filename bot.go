@@ -71,7 +71,7 @@ func (b *Bot) newBot(addr string, isMaster bool) error {
 	go b.run()
 
 	//Launches ping
-	go b.pingCon()
+	go b.botSchedules()
 
 	if isMaster {
 		b.ID = "master"
@@ -167,15 +167,19 @@ func (b *Bot) notifyRun() {
 	}
 }
 
-//Start pinger for bot
-func (b *Bot) pingCon() {
-	ticker := time.NewTicker(300 * time.Second)
+//Schedules for bot
+func (b *Bot) botSchedules() {
+	ping := time.NewTicker(305 * time.Second)
+	cleanMaps := time.NewTicker(24 * time.Hour)
 	for {
 		select {
-		case <-ticker.C:
+		case <-ping.C:
 			b.writeToCon("version")
+		case <-cleanMaps.C:
+			log.Println("Clean maps")
 		case <-b.stopPing:
-			ticker.Stop()
+			ping.Stop()
+			cleanMaps.Stop()
 			log.Println("Stop ping")
 			return
 		}
@@ -186,6 +190,15 @@ func (b *Bot) pingCon() {
 func (b *Bot) notifyAction(r *Response) {
 	switch r.action {
 	case "notifytextmessage":
+		cinfo, ok := usersByClid[r.params[0]["clid"]]
+		if !ok {
+			return
+		}
+		user, ok := users[cinfo]
+		if !ok {
+			return
+		}
+
 		if strings.Index(r.params[0]["msg"], "!quit "+b.ID) == 0 {
 			b.conn.Close()
 		}
@@ -194,6 +207,7 @@ func (b *Bot) notifyAction(r *Response) {
 			room := strings.SplitN(r.params[0]["msg"], " ", 2)
 			if len(room) == 2 {
 				go func() {
+					defer func() { log.Println("Done") }()
 					cid := b.newRoom(room[1], "595", true, 0)
 					if cid != "" {
 						b.newRoom("", cid, false, 2)
@@ -226,7 +240,7 @@ func (b *Bot) notifyAction(r *Response) {
 			newb.execAndIgnore(cmdsSub)
 		}
 		//Test function
-		if b.isMaster && strings.Index(r.params[0]["msg"], "!admin") == 0 {
+		if b.isMaster && strings.Index(r.params[0]["msg"], "!admin") == 0 && user.IsAdmin {
 			name := strings.SplitN(r.params[0]["msg"], " ", 2)
 			if len(name) == 2 {
 				addAdmin(name[1], b)
@@ -234,33 +248,20 @@ func (b *Bot) notifyAction(r *Response) {
 		}
 
 	case "notifyclientmoved":
-		cinfo, e := b.exec(clientInfo(r.params[0]["clid"]))
-		if e != nil {
-			log.Println(e)
-		}
-		user, ok := users[cinfo.params[0]["client_database_id"]]
-		if ok {
-			if !user.IsAdmin {
-				user.isMoveExceeded(b)
+		go func() {
+			cinfo, ok := usersByClid[r.params[0]["clid"]]
+			if !ok {
+				return
 			}
-		}
-
+			user, ok := users[cinfo]
+			if ok {
+				if !user.IsAdmin {
+					user.isMoveExceeded(b)
+				}
+			}
+		}()
 	case "notifychanneledited":
 		log.Println(r.action)
-	case "notifyclientleftview":
-		log.Println(r)
-		if r.params[0]["reasonid"] == "5" {
-			log.Println("Kick from server")
-			log.Println(r.params[0]["invokerid"], r.params[0]["invokername"])
-		}
-		if r.params[0]["reasonid"] == "6" {
-			log.Println("Ban from a server")
-			log.Println(r.params[0]["invokerid"], r.params[0]["invokername"])
-		}
-		if r.params[0]["reasonid"] == "4" {
-			log.Println("Kick from channel")
-			log.Println(r.params[0]["invokerid"], r.params[0]["invokername"])
-		}
 	case "notifycliententerview":
 		user, ok := users[r.params[0]["client_database_id"]]
 		if ok {
@@ -268,10 +269,47 @@ func (b *Bot) notifyAction(r *Response) {
 			if time.Since(user.Moves.SinceMove).Seconds() > 600 {
 				user.Moves.Number = 0
 			}
+			if time.Since(user.BasicInfo.CreatedAT).Seconds() > 172800 {
+				user.BasicInfo.IsRegistered = true
+			}
 			return
 		}
-		addUser(r.params[0]["client_database_id"], r.params[0]["clid"])
-		//b.db.AddNewUser(r.params[0]["client_database_id"], r.params[0]["clid"])
+		newUser(r.params[0]["client_database_id"], r.params[0]["clid"])
+		b.db.AddNewUser(r.params[0]["client_database_id"], r.params[0]["clid"])
+	case "notifyclientleftview":
+
+		if r.params[0]["reasonid"] == "5" {
+			log.Println("Kick from server")
+			userClid, ok := usersByClid[r.params[0]["clid"]]
+			if !ok {
+				return
+			}
+			user, ok := users[userClid]
+			if ok {
+				user.BasicInfo.Kick++
+			}
+			log.Println(r.params[0]["clid"], "kicked by ", r.params[0]["invokername"])
+		}
+
+		if r.params[0]["reasonid"] == "6" {
+			log.Println("Ban from a server")
+			userClid, ok := usersByClid[r.params[0]["clid"]]
+			if !ok {
+				return
+			}
+			user, ok := users[userClid]
+			if ok {
+				user.BasicInfo.Ban++
+			}
+			log.Println(r.params[0]["invokerid"], r.params[0]["invokername"])
+		}
+
+		if r.params[0]["reasonid"] == "4" {
+			log.Println("Kick from channel")
+			log.Println(r.params[0]["invokerid"], r.params[0]["invokername"])
+		}
+
+		log.Println(r.params)
 	case "notifychanneldescriptionchanged":
 		//In case if I find function for it
 		//Maybe if you are to lazy to add auto checking

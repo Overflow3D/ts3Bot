@@ -1,7 +1,10 @@
 package database
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"log"
 	"time"
 
@@ -15,8 +18,12 @@ type DB struct {
 
 //Datastore , db interface
 type Datastore interface {
+	CreateBuckets() error
+	AddRoom(cid []byte, data []byte) error
+	ReadRooms() (map[string][]byte, error)
 	AddNewUser(clid string, clidb string)
-	LoadUserFromDB() map[string][]byte
+	DeleteUser(clidb string) error
+	LoadUserFromDB() (map[string][]byte, error)
 	Close()
 }
 
@@ -29,6 +36,25 @@ func NewConn() (*DB, error) {
 	return &DB{conn: db}, nil
 }
 
+//In case if database is deleted
+func (db *DB) CreateBuckets() error {
+	err := db.conn.View(func(tx *bolt.Tx) error {
+		_, err := tx.CreateBucketIfNotExists([]byte("users"))
+		if err != nil {
+			return err
+		}
+		_, err = tx.CreateBucketIfNotExists([]byte("rooms"))
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 //Close ,closes db con
 func (db *DB) Close() {
 	db.conn.Close()
@@ -39,7 +65,7 @@ func (db *DB) GetUser(clidb string) ([]byte, error) {
 	var data []byte
 	err := db.conn.View(func(tx *bolt.Tx) error {
 		var err error
-		b := tx.Bucket([]byte("room"))
+		b := tx.Bucket([]byte("users"))
 		k := []byte(clidb)
 		data = b.Get(k)
 		if err != nil {
@@ -53,8 +79,20 @@ func (db *DB) GetUser(clidb string) ([]byte, error) {
 	return data, nil
 }
 
+func (db *DB) DeleteUser(clidb string) error {
+	err := db.conn.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("users"))
+		b.Delete([]byte(clidb))
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 //LoadUserFromDB , load users from db
-func (db *DB) LoadUserFromDB() map[string][]byte {
+func (db *DB) LoadUserFromDB() (map[string][]byte, error) {
 	users := make(map[string][]byte)
 	err := db.conn.View(func(tx *bolt.Tx) error {
 
@@ -71,10 +109,13 @@ func (db *DB) LoadUserFromDB() map[string][]byte {
 		return nil
 	})
 	if err != nil {
-		return nil
+		return nil, err
+	}
+	if len(users) == 0 {
+		return users, errors.New("There is no user in database")
 	}
 	log.Println("Wczytano", len(users))
-	return users
+	return users, nil
 }
 
 //AddNewUser , adduser to db
@@ -95,16 +136,32 @@ func (db *DB) AddNewUser(clid string, clidb string) {
 			0,
 		}
 
+		basicInfo := struct {
+			CreatedAT    time.Time
+			LastSeen     time.Time
+			IsRegistered bool
+			Kick         int
+			Ban          int
+		}{
+			time.Now(),
+			time.Now(),
+			false,
+			0,
+			0,
+		}
+
 		user := struct {
-			Clidb   string
-			Clid    string
-			Moves   interface{}
-			Perm    int
-			IsAdmin bool
+			Clidb     string
+			Clid      string
+			Moves     interface{}
+			BasicInfo interface{}
+			Perm      int
+			IsAdmin   bool
 		}{
 			clid,
 			clidb,
 			moves,
+			basicInfo,
 			1,
 			false,
 		}
@@ -123,6 +180,67 @@ func (db *DB) AddNewUser(clid string, clidb string) {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+//AddRoom , adds room to database
+func (db *DB) AddRoom(cid []byte, data []byte) error {
+	err := db.conn.Update(func(tx *bolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte("rooms"))
+		if err != nil {
+			return err
+		}
+		err = bucket.Put(cid, data)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	return err
+}
+
+//GetRoom , returns room with certain cid
+func (db *DB) GetRoom(cid []byte) ([]byte, error) {
+	var buffer bytes.Buffer
+	err := db.conn.View(func(tx *bolt.Tx) error {
+		bucket := tx.Bucket([]byte("rooms"))
+		if bucket == nil {
+			return fmt.Errorf("Bucket rooms")
+		}
+
+		buffer.Write(bucket.Get(cid))
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	return buffer.Bytes(), nil
+}
+
+//ReadRooms , reads all room from database
+func (db *DB) ReadRooms() (map[string][]byte, error) {
+	start := time.Now()
+	defer func() {
+		log.Println(time.Since(start))
+	}()
+	channels := make(map[string][]byte)
+	err := db.conn.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("rooms"))
+
+		c := b.Cursor()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			channels[string(k)] = v
+		}
+
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return channels, nil
 }
 
 func marshalJSON(v interface{}) ([]byte, error) {

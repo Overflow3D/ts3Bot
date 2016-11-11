@@ -9,11 +9,12 @@ import (
 
 //User , ...
 type User struct {
-	Clidb   string
-	Clid    string
-	Moves   *Moves
-	Perm    int
-	IsAdmin bool
+	Clidb     string
+	Clid      string
+	Moves     *Moves
+	BasicInfo *BasicInfo
+	Perm      int
+	IsAdmin   bool
 }
 
 //Moves , how much time user moved
@@ -23,25 +24,19 @@ type Moves struct {
 	Warnings  int
 }
 
-var users = make(map[string]*User)
-
-func addUser(dbID string, clid string) {
-	_, ok := users[dbID]
-	if !ok {
-		users[dbID] = &User{
-			Clidb: dbID,
-			Clid:  clid,
-			Moves: &Moves{
-				Number:    0,
-				SinceMove: time.Now(),
-				Warnings:  0,
-			},
-		}
-	}
+type BasicInfo struct {
+	CreatedAT    time.Time
+	LastSeen     time.Time
+	IsRegistered bool
+	Kick         int
+	Ban          int
 }
 
+var users = make(map[string]*User)
+var usersByClid = make(map[string]string)
+
 func newUser(dbID string, clid string) *User {
-	return &User{
+	newUser := &User{
 		Clidb: dbID,
 		Clid:  clid,
 		Moves: &Moves{
@@ -49,42 +44,34 @@ func newUser(dbID string, clid string) *User {
 			SinceMove: time.Now(),
 			Warnings:  0,
 		},
+		BasicInfo: &BasicInfo{
+			CreatedAT:    time.Now(),
+			LastSeen:     time.Now(),
+			IsRegistered: false,
+			Kick:         0,
+			Ban:          0,
+		},
 	}
+	if dbID == cfg.HeadAdmin {
+		log.Println("HeadAdmin found in list")
+		newUser.IsAdmin = true
+	}
+	return newUser
 }
 
 func (b *Bot) loadUsers() {
 	lists, e := b.exec(clientList())
-	// usersOnTeamSpeak := make(map[string]*User)
 	if e != nil {
 		log.Println(e)
 	}
-	userList := b.db.LoadUserFromDB()
-	var updateUser int
-	var addedUser int
+
 	for _, userTS := range lists.params {
-		if userTS["client_database_id"] != "1" && userTS["client_database_id"] != "" {
-			for key, userDB := range userList {
-				if key == userTS["client_database_id"] {
-					user := &User{}
-					err := user.unmarshalJSON(userDB)
-					if err != nil {
-						log.Println("error")
-					}
-					user.Clid = userTS["clid"]
-					users[user.Clidb] = user
-					updateUser++
-				} else {
-					users[userTS["client_database_id"]] = newUser(userTS["client_database_id"], userTS["clid"])
-					//b.db.AddNewUser(userTS["client_database_id"], userTS["clid"])
-					addedUser++
-				}
 
-			}
+		users[userTS["client_database_id"]] = newUser(userTS["client_database_id"], userTS["clid"])
+		usersByClid[userTS["clid"]] = userTS["client_database_id"]
 
-		}
 	}
-	log.Println("Updated ", updateUser, "and added", addedUser, "users")
-	log.Println("wielkosc mapy:", countUsers())
+	log.Println("Added", len(lists.params), "users")
 }
 
 func (u *User) incrementMoves() {
@@ -132,6 +119,7 @@ type Channel struct {
 
 var channels map[string]*Channel
 
+//getChannelList , allways to copy all existing rooms into channel struct
 func (b *Bot) getChannelList() {
 	chList := make(map[string]*Channel)
 	start := time.Now()
@@ -176,6 +164,11 @@ func (b *Bot) getChannelList() {
 
 				channel.Childs = child
 				chList[vMain["cid"]] = channel
+				encode, err := json.Marshal(channel)
+				if err != nil {
+					log.Println(err)
+				}
+				b.db.AddRoom([]byte(channel.Cid), encode)
 
 			}
 
@@ -183,6 +176,22 @@ func (b *Bot) getChannelList() {
 
 	}
 
+}
+
+func (b *Bot) writeChannelsIntoMemo() {
+	chList := make(map[string]*Channel)
+	channel := &Channel{}
+	chMap, err := b.db.ReadRooms()
+	if err != nil {
+		log.Fatalln(err)
+	}
+	for k, v := range chMap {
+		err := channel.unmarshalJSON(v)
+		if err != nil {
+			log.Fatalln(err)
+		}
+		chList[k] = channel
+	}
 }
 
 func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) string {
@@ -211,4 +220,8 @@ func countUsers() int {
 
 func (u *User) unmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &u)
+}
+
+func (c *Channel) unmarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &c)
 }

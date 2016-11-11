@@ -11,20 +11,24 @@ import (
 
 //Config , TeamSpeak 3 bot start up
 type Config struct {
-	Login    string `jsong:"Login"`
-	Password string `json:"Password"`
-	ServerID string `json:"ServerID"`
+	Login     string `jsong:"Login"`
+	Password  string `json:"Password"`
+	ServerID  string `json:"ServerID"`
+	HeadAdmin string `json:"HeadAdminCliDB"`
 }
 
-var wg sync.WaitGroup
-var cmdsMain []*Command
-var cmdsSub []*Command
+var (
+	wg       sync.WaitGroup
+	cmdsMain []*Command
+	cmdsSub  []*Command
+	cfg      *Config
+)
 
 func main() {
 	// After cloning the git you need to create config.json file
 	// If you want to use loadConfig function, otherwise you will get an error
-
-	cfg, err := loadConfig()
+	var err error
+	cfg, err = loadConfig()
 	if err != nil {
 		log.Println(err)
 	}
@@ -60,7 +64,11 @@ func main() {
 	if ok {
 		bot.execAndIgnore(cmdsMain)
 		bot.loadUsers()
-		bot.getChannelList()
+
+		// TODO add flas for first run
+		// First time run uncomment
+		//bot.getChannelList()
+		// bot.writeChannelsIntoMemo()
 	}
 
 	wg.Wait()

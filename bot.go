@@ -25,6 +25,7 @@ type Bot struct {
 	isMaster bool
 	resp     string
 	db       database.Datastore
+	Uptime   int64
 }
 
 //Response , represents telnet response
@@ -49,7 +50,7 @@ var bots = make(map[string]*Bot)
 func (b *Bot) newBot(addr string, isMaster bool) error {
 	conn, err := net.Dial("tcp", addr)
 	if err != nil {
-		log.Println(err)
+		errLog.Println(err)
 	}
 
 	b.conn = conn
@@ -73,6 +74,7 @@ func (b *Bot) newBot(addr string, isMaster bool) error {
 	//Launches ping
 	go b.botSchedules()
 
+	b.Uptime = time.Now().UnixNano()
 	if isMaster {
 		b.ID = "master"
 		bots[b.ID] = b
@@ -125,13 +127,13 @@ func (b *Bot) cleanUp() {
 			i.conn.Close()
 		}
 	}
-	log.Println("Bot", b.ID, "stopped his work.")
+	warnLog.Println("Bot", b.ID, "stopped his work.")
 	wg.Done()
 }
 
 func (b *Bot) run() {
 	defer func() {
-		log.Println("Bot's", b.ID, "fetching stopped due to bot turning off")
+		warnLog.Println("Bot's", b.ID, "fetching stopped due to bot turning off")
 	}()
 	for {
 		select {
@@ -175,12 +177,12 @@ func (b *Bot) botSchedules() {
 		select {
 		case <-ping.C:
 			b.writeToCon("version")
+			infoLog.Println("Ping from bot: ", b.ID, " was send to telnet")
 		case <-cleanMaps.C:
 			log.Println("Clean maps")
 		case <-b.stopPing:
 			ping.Stop()
 			cleanMaps.Stop()
-			log.Println("Stop ping")
 			return
 		}
 	}
@@ -190,7 +192,7 @@ func (b *Bot) botSchedules() {
 func (b *Bot) notifyAction(r *Response) {
 	switch r.action {
 	case "notifytextmessage":
-		log.Println(r.params)
+
 		cinfo, ok := usersByClid[r.params[0]["invokerid"]]
 		if !ok {
 			return
@@ -199,28 +201,52 @@ func (b *Bot) notifyAction(r *Response) {
 		if !ok {
 			return
 		}
-		if strings.Index(r.params[0]["msg"], "!quit "+b.ID) == 0 {
-			b.conn.Close()
+
+		if strings.Index(r.params[0]["msg"], "!uptime") == 0 {
+			bot := strings.SplitN(r.params[0]["msg"], " ", 2)
+			if len(bot) == 2 {
+				botCheck, ok := bots[bot[1]]
+				if ok && b.ID == bot[1] {
+					eventLog.Println("Bot ", botCheck.ID, " uptime is ", botCheck.Uptime)
+					return
+				}
+
+			}
+
+		}
+
+		if strings.Index(r.params[0]["msg"], "!quit") == 0 {
+			bot := strings.SplitN(r.params[0]["msg"], " ", 2)
+			if len(bot) == 2 {
+				botToClose, ok := bots[bot[1]]
+				if ok {
+					botToClose.conn.Close()
+					warnLog.Println("User ", user.Nick, " invoked command to turn of bot")
+					return
+				}
+				errLog.Println("There is no such bot as ", bot[1])
+			}
+
 		}
 
 		if b.isMaster && strings.Index(r.params[0]["msg"], "!room") == 0 {
 			room := strings.SplitN(r.params[0]["msg"], " ", 2)
 			if len(room) == 2 {
 				go func() {
-					defer func() { log.Println("Done") }()
+					defer func() { eventLog.Println("Room created with success: ", room[1]) }()
 					cid := b.newRoom(room[1], "595", true, 0)
 					if cid != "" {
 						b.newRoom("", cid, false, 2)
 					}
 					client, err := b.exec(clientDBID(room[1], ""))
 					if err != nil {
-						log.Println(err)
+						errLog.Println(err)
 						return
 					}
 					log.Println(client.params)
 					_, errC := b.exec(setChannelAdmin(client.params[0]["cldbid"], cid))
 					if errC != nil {
-						log.Println(errC)
+						errLog.Println(errC)
 					}
 
 				}()
@@ -229,20 +255,24 @@ func (b *Bot) notifyAction(r *Response) {
 		}
 
 		if b.isMaster && strings.Index(r.params[0]["msg"], "!create") == 0 {
-			log.Println("Created by: ", b.ID)
+			if !user.IsAdmin {
+				warnLog.Println("User ", user.Nick, " is not an Admin!")
+				return
+			}
+			infoLog.Println("Created by: ", b.ID)
 			newb := &Bot{}
 			err := newb.newBot("teamspot.eu:10011", false)
 			if err != nil {
 				log.Println(err)
 				return
 			}
-			log.Println("Bot is ", newb.ID, "total of", len(bots), "in system")
-			newb.execAndIgnore(cmdsSub)
+			infoLog.Println("New bot with id: ", newb.ID, "total of", len(bots), "in system", "bot created by ", user.Nick)
+			newb.execAndIgnore(cmdsSub, true)
 		}
 		//Test function
 		if b.isMaster && strings.Index(r.params[0]["msg"], "!admin") == 0 {
 			if !user.IsAdmin {
-				log.Println("Not Admin")
+				warnLog.Println(user.Nick, " is not Admin")
 				return
 			}
 			name := strings.SplitN(r.params[0]["msg"], " ", 2)
@@ -267,19 +297,17 @@ func (b *Bot) notifyAction(r *Response) {
 					user.newRoomTrackerRecord(r.params[0]["ctid"])
 					user.Moves.MoveStatus = 0
 					if !user.IsAdmin {
-
 						user.isMoveExceeded(b)
 					}
 				}
 			}
 		}()
 	case "notifychanneledited":
-		log.Println(r.action)
+		debugLog.Println(r.action)
 	case "notifycliententerview":
-		log.Println(r.params)
 		userDB, err := b.db.GetUser(r.params[0]["client_database_id"])
 		if err != nil {
-			log.Println(err)
+			errLog.Println(err)
 		}
 		if len(userDB) != 0 {
 			retriveUser := &User{}
@@ -295,25 +323,28 @@ func (b *Bot) notifyAction(r *Response) {
 			}
 
 		} else {
-			userS := newUser(r.params[0]["client_database_id"], r.params[0]["clid"])
-			b.db.AddNewUser(r.params[0]["client_database_id"], userS)
-			users[userS.Clidb] = userS
-			usersByClid[userS.Clid] = userS.Clidb
+			if r.params[0]["client_database_id"] != "1" && r.params[0]["client_unique_identifier"] != "ServerQuery" {
+				userS := newUser(r.params[0]["client_database_id"], r.params[0]["clid"], r.params[0]["client_nickname"])
+				b.db.AddNewUser(r.params[0]["client_database_id"], userS)
+				users[userS.Clidb] = userS
+				usersByClid[userS.Clid] = userS.Clidb
+			} else {
+				warnLog.Println("Detected sever query bot")
+			}
 		}
 
 	case "notifyclientleftview":
 		userClid, ok := usersByClid[r.params[0]["clid"]]
 		if !ok {
-			log.Println("Abnormal action")
+			warnLog.Println("Abnormal action")
 			return
 		}
 		user, ok := users[userClid]
 		if !ok {
-			log.Println("Abnormal action")
+			warnLog.Println("Abnormal action")
 			return
 		}
 		if r.params[0]["reasonid"] == "5" {
-			log.Println("kick")
 			user.BasicInfo.Kick++
 		}
 
@@ -329,7 +360,7 @@ func (b *Bot) notifyAction(r *Response) {
 		b.db.AddNewUser(user.Clidb, user)
 		delete(users, user.Clidb)
 		delete(usersByClid, r.params[0]["clid"])
-		log.Println("Size ", len(users))
+		debugLog.Println("Size of users map: ", len(users))
 	case "notifychanneldescriptionchanged":
 		//In case if I find function for it
 		//Maybe if you are to lazy to add auto checking
@@ -341,9 +372,13 @@ func (b *Bot) notifyAction(r *Response) {
 	case "notifychannelmoved":
 		return
 	default:
-		log.Println("Unusual action: ", r.action)
+		warnLog.Println("Unusual action: ", r.action)
 		return
 	}
+
+}
+
+func (b *Bot) actionMsg(r *Response, u *User) {
 
 }
 

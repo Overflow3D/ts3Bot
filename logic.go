@@ -11,6 +11,7 @@ import (
 type User struct {
 	Clidb     string
 	Clid      string
+	Nick      string
 	Moves     *Moves
 	BasicInfo *BasicInfo
 	Perm      int
@@ -37,10 +38,11 @@ type BasicInfo struct {
 var users = make(map[string]*User)
 var usersByClid = make(map[string]string)
 
-func newUser(dbID string, clid string) *User {
+func newUser(dbID string, clid string, nick string) *User {
 	newUser := &User{
 		Clidb: dbID,
 		Clid:  clid,
+		Nick:  nick,
 		Moves: &Moves{
 			Number:      0,
 			SinceMove:   time.Now(),
@@ -57,7 +59,7 @@ func newUser(dbID string, clid string) *User {
 		},
 	}
 	if dbID == cfg.HeadAdmin {
-		log.Println("HeadAdmin set to id", dbID)
+		eventLog.Println("HeadAdmin set to id", dbID, "with nickname ", newUser.Nick)
 		newUser.IsAdmin = true
 	}
 	return newUser
@@ -73,14 +75,14 @@ func (b *Bot) loadUsers() error {
 	for _, userTS := range lists.params {
 		if userTS["client_database_id"] != "1" {
 			added++
-			user := newUser(userTS["client_database_id"], userTS["clid"])
+			user := newUser(userTS["client_database_id"], userTS["clid"], userTS["client_nickname"])
 			users[userTS["client_database_id"]] = user
 			usersByClid[userTS["clid"]] = userTS["client_database_id"]
 			b.db.AddNewUser(user.Clidb, user)
 		}
 	}
 
-	log.Println("Added", added, "users")
+	debugLog.Println("Added", added, "users on startup")
 	return nil
 }
 
@@ -95,7 +97,7 @@ func (u *User) isMoveExceeded(b *Bot) bool {
 		}
 		_, err := b.exec(kickClient(u.Clid, "Nie skacz po kanałach!"))
 		if err != nil {
-			log.Println(err)
+			errLog.Println(err)
 		}
 		u.Moves.Number = 0
 		u.Moves.Warnings++
@@ -109,7 +111,7 @@ func (u *User) isMoveExceeded(b *Bot) bool {
 func addAdmin(usr string, bot *Bot) {
 	r, e := bot.exec(clientFind(usr))
 	if e != nil {
-		log.Println(e)
+		errLog.Println(e)
 		return
 	}
 	userDB, ok := usersByClid[r.params[0]["clid"]]
@@ -120,7 +122,7 @@ func addAdmin(usr string, bot *Bot) {
 	if ok {
 		user.IsAdmin = true
 		bot.db.AddNewUser(user.Clidb, user)
-		log.Println("user", usr, "was set as an Admin")
+		infoLog.Println("user", usr, "was set as an Admin")
 	}
 
 }
@@ -201,12 +203,12 @@ func (b *Bot) writeChannelsIntoMemo() {
 	channel := &Channel{}
 	chMap, err := b.db.ReadRooms()
 	if err != nil {
-		log.Fatalln(err)
+		errLog.Fatalln(err)
 	}
 	for k, v := range chMap {
 		err := channel.unmarshalJSON(v)
 		if err != nil {
-			log.Fatalln(err)
+			errLog.Fatalln(err)
 		}
 		chList[k] = channel
 	}
@@ -217,7 +219,7 @@ func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) string
 		for i := 1; i <= subRooms; i++ {
 			_, err := b.exec(createRoom("Pokój "+strconv.Itoa(i), pid))
 			if err != nil {
-				log.Println(err)
+				errLog.Println(err)
 			}
 
 		}
@@ -226,9 +228,9 @@ func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) string
 
 	cid, err := b.exec(createRoom(name, pid))
 	if err != nil {
-		log.Println(err)
+		errLog.Println(err)
 	}
-	log.Println(cid)
+	infoLog.Println("Room with id: ", cid, " was created")
 	return cid.params[0]["cid"]
 }
 

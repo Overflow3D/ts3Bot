@@ -40,19 +40,22 @@ func (b *Bot) exec(cmd *Command) (*Response, error) {
 }
 
 //Exec multiple commands and ignore output silently
-func (b *Bot) execAndIgnore(cmd []*Command) {
+func (b *Bot) execAndIgnore(cmd []*Command, newBot bool) {
 	for _, c := range cmd {
 		fmt.Fprintf(b.conn, "%s\n\r", c)
 		err := <-b.err
 		b.resp = ""
 		if formatError(err) != nil {
-			log.Println(c)
 			log.Println(err)
 			return
 		}
+
+		if newBot {
+			b.exec(nickname(b.ID))
+		}
 	}
 
-	log.Println("Command executed with out any problems, invoked by bot: ", b.ID)
+	infoLog.Println("Command executed with out any problems, invoked by bot: ", b.ID)
 
 }
 

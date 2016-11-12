@@ -27,13 +27,11 @@ var (
 func main() {
 	// After cloning the git you need to create config.json file
 	// If you want to use loadConfig function, otherwise you will get an error
-	infoLog.Println("hi")
-	errLog.Println("hi")
-	warnLog.Println("hi")
+
 	var err error
 	cfg, err = loadConfig()
 	if err != nil {
-		log.Println(err)
+		errLog.Println(err)
 	}
 	//Basic commands to start off bot
 	cmdsMain = []*Command{
@@ -56,16 +54,16 @@ func main() {
 	db, err := _db.NewConn()
 	defer db.Close()
 	if err != nil {
-		log.Println(err)
+		errLog.Println(err)
 	}
 	b.db = db
 	err = b.newBot("teamspot.eu:10011", true)
 	if err != nil {
-		log.Println(err)
+		errLog.Println(err)
 	}
 	bot, ok := bots["master"]
 	if ok {
-		bot.execAndIgnore(cmdsMain)
+		bot.execAndIgnore(cmdsMain, false)
 		err := bot.loadUsers()
 		if err != nil {
 			log.Fatalln(err)

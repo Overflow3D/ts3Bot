@@ -27,6 +27,9 @@ var (
 func main() {
 	// After cloning the git you need to create config.json file
 	// If you want to use loadConfig function, otherwise you will get an error
+	infoLog.Println("hi")
+	errLog.Println("hi")
+	warnLog.Println("hi")
 	var err error
 	cfg, err = loadConfig()
 	if err != nil {

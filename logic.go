@@ -19,9 +19,11 @@ type User struct {
 
 //Moves , how much time user moved
 type Moves struct {
-	Number    int
-	SinceMove time.Time
-	Warnings  int
+	Number      int
+	SinceMove   time.Time
+	Warnings    int
+	RoomTracker map[int64]string
+	MoveStatus  int
 }
 
 type BasicInfo struct {
@@ -40,9 +42,11 @@ func newUser(dbID string, clid string) *User {
 		Clidb: dbID,
 		Clid:  clid,
 		Moves: &Moves{
-			Number:    0,
-			SinceMove: time.Now(),
-			Warnings:  0,
+			Number:      0,
+			SinceMove:   time.Now(),
+			Warnings:    0,
+			RoomTracker: make(map[int64]string),
+			MoveStatus:  0,
 		},
 		BasicInfo: &BasicInfo{
 			CreatedAT:    time.Now(),
@@ -53,7 +57,7 @@ func newUser(dbID string, clid string) *User {
 		},
 	}
 	if dbID == cfg.HeadAdmin {
-		log.Println("HeadAdmin found in list")
+		log.Println("HeadAdmin set to id", dbID)
 		newUser.IsAdmin = true
 	}
 	return newUser
@@ -85,13 +89,17 @@ func (u *User) incrementMoves() {
 }
 
 func (u *User) isMoveExceeded(b *Bot) bool {
-	if (u.Moves.Number)/2 > 10 && time.Since(u.Moves.SinceMove).Seconds() < 600 {
-		b.exec(kickClient(u.Clid, "Nie skacz po kanałach!"))
+	if (u.Moves.Number) > 10 && time.Since(u.Moves.SinceMove).Seconds() < 600 {
+		if u.Moves.Warnings >= 3 {
+			log.Println("Ban time")
+		}
+		_, err := b.exec(kickClient(u.Clid, "Nie skacz po kanałach!"))
+		if err != nil {
+			log.Println(err)
+		}
 		u.Moves.Number = 0
 		u.Moves.Warnings++
-		if u.Moves.Warnings >= 3 {
-			// ban here
-		}
+		b.db.AddNewUser(u.Clidb, u)
 		return true
 	}
 	u.incrementMoves()
@@ -99,16 +107,20 @@ func (u *User) isMoveExceeded(b *Bot) bool {
 }
 
 func addAdmin(usr string, bot *Bot) {
-	r, e := bot.exec(clientDBID(usr, ""))
+	r, e := bot.exec(clientFind(usr))
 	if e != nil {
 		log.Println(e)
 		return
 	}
-
-	user, ok := users[r.params[0]["cldbid"]]
+	userDB, ok := usersByClid[r.params[0]["clid"]]
+	if !ok {
+		return
+	}
+	user, ok := users[userDB]
 	if ok {
 		user.IsAdmin = true
-		log.Println("user was set as an Admin")
+		bot.db.AddNewUser(user.Clidb, user)
+		log.Println("user", usr, "was set as an Admin")
 	}
 
 }

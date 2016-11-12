@@ -190,7 +190,8 @@ func (b *Bot) botSchedules() {
 func (b *Bot) notifyAction(r *Response) {
 	switch r.action {
 	case "notifytextmessage":
-		cinfo, ok := usersByClid[r.params[0]["clid"]]
+		log.Println(r.params)
+		cinfo, ok := usersByClid[r.params[0]["invokerid"]]
 		if !ok {
 			return
 		}
@@ -198,7 +199,6 @@ func (b *Bot) notifyAction(r *Response) {
 		if !ok {
 			return
 		}
-
 		if strings.Index(r.params[0]["msg"], "!quit "+b.ID) == 0 {
 			b.conn.Close()
 		}
@@ -240,41 +240,43 @@ func (b *Bot) notifyAction(r *Response) {
 			newb.execAndIgnore(cmdsSub)
 		}
 		//Test function
-		if b.isMaster && strings.Index(r.params[0]["msg"], "!admin") == 0 && user.IsAdmin {
+		if b.isMaster && strings.Index(r.params[0]["msg"], "!admin") == 0 {
+			if !user.IsAdmin {
+				log.Println("Not Admin")
+				return
+			}
 			name := strings.SplitN(r.params[0]["msg"], " ", 2)
 			if len(name) == 2 {
-				addAdmin(name[1], b)
+				go addAdmin(name[1], b)
 			}
+
 		}
 
 	case "notifyclientmoved":
 		go func() {
 			cinfo, ok := usersByClid[r.params[0]["clid"]]
 			if !ok {
+
 				return
 			}
 			user, ok := users[cinfo]
 			if ok {
-				if !user.IsAdmin {
-					user.isMoveExceeded(b)
+
+				user.Moves.MoveStatus++
+				if user.Moves.MoveStatus == 2 {
+					user.newRoomTrackerRecord(r.params[0]["ctid"])
+					user.Moves.MoveStatus = 0
+					if !user.IsAdmin {
+
+						user.isMoveExceeded(b)
+					}
 				}
 			}
 		}()
 	case "notifychanneledited":
 		log.Println(r.action)
 	case "notifycliententerview":
-
-		user, ok := users[r.params[0]["client_database_id"]]
-		if ok {
-			user.Clid = r.params[0]["clid"]
-			if time.Since(user.Moves.SinceMove).Seconds() > 600 {
-				user.Moves.Number = 0
-			}
-			if time.Since(user.BasicInfo.CreatedAT).Seconds() > 172800 {
-				user.BasicInfo.IsRegistered = true
-			}
-			return
-		}
+		log.Println(r.params)
 		userDB, err := b.db.GetUser(r.params[0]["client_database_id"])
 		if err != nil {
 			log.Println(err)
@@ -282,14 +284,22 @@ func (b *Bot) notifyAction(r *Response) {
 		if len(userDB) != 0 {
 			retriveUser := &User{}
 			retriveUser.unmarshalJSON(userDB)
+			retriveUser.Clid = r.params[0]["clid"]
 			users[retriveUser.Clidb] = retriveUser
-			usersByClid[retriveUser.Clid] = retriveUser.Clidb
-			return
+			usersByClid[r.params[0]["clid"]] = retriveUser.Clidb
+			if time.Since(retriveUser.Moves.SinceMove).Seconds() > 600 {
+				retriveUser.Moves.Number = 0
+			}
+			if time.Since(retriveUser.BasicInfo.CreatedAT).Seconds() > 172800 {
+				retriveUser.BasicInfo.IsRegistered = true
+			}
+
+		} else {
+			userS := newUser(r.params[0]["client_database_id"], r.params[0]["clid"])
+			b.db.AddNewUser(r.params[0]["client_database_id"], userS)
+			users[userS.Clidb] = userS
+			usersByClid[userS.Clid] = userS.Clidb
 		}
-		userS := newUser(r.params[0]["client_database_id"], r.params[0]["clid"])
-		b.db.AddNewUser(r.params[0]["client_database_id"], userS)
-		users[userS.Clidb] = userS
-		usersByClid[userS.Clid] = userS.Clidb
 
 	case "notifyclientleftview":
 		userClid, ok := usersByClid[r.params[0]["clid"]]
@@ -303,6 +313,7 @@ func (b *Bot) notifyAction(r *Response) {
 			return
 		}
 		if r.params[0]["reasonid"] == "5" {
+			log.Println("kick")
 			user.BasicInfo.Kick++
 		}
 
@@ -317,7 +328,8 @@ func (b *Bot) notifyAction(r *Response) {
 
 		b.db.AddNewUser(user.Clidb, user)
 		delete(users, user.Clidb)
-		delete(usersByClid, user.Clid)
+		delete(usersByClid, r.params[0]["clid"])
+		log.Println("Size ", len(users))
 	case "notifychanneldescriptionchanged":
 		//In case if I find function for it
 		//Maybe if you are to lazy to add auto checking

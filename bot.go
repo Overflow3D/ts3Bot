@@ -263,6 +263,7 @@ func (b *Bot) notifyAction(r *Response) {
 	case "notifychanneledited":
 		log.Println(r.action)
 	case "notifycliententerview":
+
 		user, ok := users[r.params[0]["client_database_id"]]
 		if ok {
 			user.Clid = r.params[0]["clid"]
@@ -274,34 +275,39 @@ func (b *Bot) notifyAction(r *Response) {
 			}
 			return
 		}
-		newUser(r.params[0]["client_database_id"], r.params[0]["clid"])
-		b.db.AddNewUser(r.params[0]["client_database_id"], r.params[0]["clid"])
-	case "notifyclientleftview":
+		userDB, err := b.db.GetUser(r.params[0]["client_database_id"])
+		if err != nil {
+			log.Println(err)
+		}
+		if len(userDB) != 0 {
+			retriveUser := &User{}
+			retriveUser.unmarshalJSON(userDB)
+			users[retriveUser.Clidb] = retriveUser
+			usersByClid[retriveUser.Clid] = retriveUser.Clidb
+			return
+		}
+		userS := newUser(r.params[0]["client_database_id"], r.params[0]["clid"])
+		b.db.AddNewUser(r.params[0]["client_database_id"], userS)
+		users[userS.Clidb] = userS
+		usersByClid[userS.Clid] = userS.Clidb
 
+	case "notifyclientleftview":
+		userClid, ok := usersByClid[r.params[0]["clid"]]
+		if !ok {
+			log.Println("Abnormal action")
+			return
+		}
+		user, ok := users[userClid]
+		if !ok {
+			log.Println("Abnormal action")
+			return
+		}
 		if r.params[0]["reasonid"] == "5" {
-			log.Println("Kick from server")
-			userClid, ok := usersByClid[r.params[0]["clid"]]
-			if !ok {
-				return
-			}
-			user, ok := users[userClid]
-			if ok {
-				user.BasicInfo.Kick++
-			}
-			log.Println(r.params[0]["clid"], "kicked by ", r.params[0]["invokername"])
+			user.BasicInfo.Kick++
 		}
 
 		if r.params[0]["reasonid"] == "6" {
-			log.Println("Ban from a server")
-			userClid, ok := usersByClid[r.params[0]["clid"]]
-			if !ok {
-				return
-			}
-			user, ok := users[userClid]
-			if ok {
-				user.BasicInfo.Ban++
-			}
-			log.Println(r.params[0]["invokerid"], r.params[0]["invokername"])
+			user.BasicInfo.Ban++
 		}
 
 		if r.params[0]["reasonid"] == "4" {
@@ -309,7 +315,9 @@ func (b *Bot) notifyAction(r *Response) {
 			log.Println(r.params[0]["invokerid"], r.params[0]["invokername"])
 		}
 
-		log.Println(r.params)
+		b.db.AddNewUser(user.Clidb, user)
+		delete(users, user.Clidb)
+		delete(usersByClid, user.Clid)
 	case "notifychanneldescriptionchanged":
 		//In case if I find function for it
 		//Maybe if you are to lazy to add auto checking

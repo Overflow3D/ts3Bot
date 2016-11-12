@@ -63,7 +63,10 @@ func main() {
 	bot, ok := bots["master"]
 	if ok {
 		bot.execAndIgnore(cmdsMain)
-		bot.loadUsers()
+		err := bot.loadUsers()
+		if err != nil {
+			log.Fatalln(err)
+		}
 
 		// TODO add flas for first run
 		// First time run uncomment

@@ -59,19 +59,25 @@ func newUser(dbID string, clid string) *User {
 	return newUser
 }
 
-func (b *Bot) loadUsers() {
-	lists, e := b.exec(clientList())
-	if e != nil {
-		log.Println(e)
+func (b *Bot) loadUsers() error {
+	lists, err := b.exec(clientList())
+	var added int
+	if err != nil {
+		return err
 	}
 
 	for _, userTS := range lists.params {
-
-		users[userTS["client_database_id"]] = newUser(userTS["client_database_id"], userTS["clid"])
-		usersByClid[userTS["clid"]] = userTS["client_database_id"]
-
+		if userTS["client_database_id"] != "1" {
+			added++
+			user := newUser(userTS["client_database_id"], userTS["clid"])
+			users[userTS["client_database_id"]] = user
+			usersByClid[userTS["clid"]] = userTS["client_database_id"]
+			b.db.AddNewUser(user.Clidb, user)
+		}
 	}
-	log.Println("Added", len(lists.params), "users")
+
+	log.Println("Added", added, "users")
+	return nil
 }
 
 func (u *User) incrementMoves() {

@@ -206,23 +206,7 @@ func (b *Bot) notifyAction(r *Response) {
 		}
 		debugLog.Println("Some normal message")
 	case "notifyclientmoved":
-		go func() {
-			cinfo, ok := usersByClid[r.params[0]["clid"]]
-			if !ok {
-				return
-			}
-			user, ok := users[cinfo]
-			if ok {
-				user.Moves.MoveStatus++
-				if user.Moves.MoveStatus == 2 {
-					user.newRoomTrackerRecord(r.params[0]["ctid"])
-					user.Moves.MoveStatus = 0
-					if !user.IsAdmin {
-						user.isMoveExceeded(b)
-					}
-				}
-			}
-		}()
+		go b.actionMove(r)
 	case "notifychanneledited":
 		debugLog.Println(r.action)
 	case "notifycliententerview":
@@ -299,6 +283,24 @@ func (b *Bot) notifyAction(r *Response) {
 
 }
 
+func (b *Bot) actionMove(r *Response) {
+	cinfo, ok := usersByClid[r.params[0]["clid"]]
+	if !ok {
+		return
+	}
+	user, ok := users[cinfo]
+	if ok {
+		user.Moves.MoveStatus++
+		if user.Moves.MoveStatus == 2 {
+			user.newRoomTrackerRecord(r.params[0]["ctid"])
+			user.Moves.MoveStatus = 0
+			if !user.IsAdmin {
+				user.isMoveExceeded(b)
+			}
+		}
+	}
+}
+
 func (b *Bot) actionMsg(r *Response, u *User) {
 	switch {
 	case strings.Index(r.params[0]["msg"], "!help") == 0:
@@ -352,8 +354,8 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 			go func() {
 				defer func() { eventLog.Println("Room created with success: ", room[2]) }()
 				cid := b.newRoom(room[2], pid, true, 0)
-				if cid != "" {
-					b.newRoom("", cid, false, 2)
+				if cid[0] != "" {
+					b.newRoom("", cid[0], false, 2)
 				}
 				client, err := b.exec(clientDBID(room[1], ""))
 				if err != nil {
@@ -361,11 +363,22 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 					return
 				}
 				log.Println(client.params)
-				_, errC := b.exec(setChannelAdmin(client.params[0]["cldbid"], cid))
+				_, errC := b.exec(setChannelAdmin(client.params[0]["cldbid"], cid[0]))
 				if errC != nil {
 					errLog.Println(errC)
 				}
-
+				var admins []string
+				admins = append(admins, client.params[0]["cldbid"])
+				channel := &Channel{
+					Cid:        cid[0],
+					Spacer:     pid,
+					Name:       room[2],
+					OwnerDB:    client.params[0]["cldbid"],
+					CreateDate: time.Now(),
+					CreatedBy:  "",
+					Childs:     cid[1:],
+					Admins:     admins,
+				}
 			}()
 		}
 

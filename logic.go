@@ -133,6 +133,7 @@ type Channel struct {
 	Name       string
 	OwnerDB    string
 	CreateDate time.Time
+	CreatedBy  string
 	Childs     []string
 	Admins     []string
 }
@@ -214,16 +215,17 @@ func (b *Bot) writeChannelsIntoMemo() {
 	}
 }
 
-func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) string {
+func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) []string {
+	var cids []string
 	if !isMain {
 		for i := 1; i <= subRooms; i++ {
-			_, err := b.exec(createRoom("Pokój "+strconv.Itoa(i), pid))
+			cid, err := b.exec(createRoom("Pokój "+strconv.Itoa(i), pid))
 			if err != nil {
 				errLog.Println(err)
 			}
-
+			cids = append(cids, cid.params[0]["cid"])
 		}
-		return ""
+		return cids
 	}
 
 	cid, err := b.exec(createRoom(name, pid))
@@ -231,7 +233,7 @@ func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) string
 		errLog.Println(err)
 	}
 	infoLog.Println("Room with id: ", cid, " was created")
-	return cid.params[0]["cid"]
+	return []string{cid.params[0]["cid"]}
 }
 
 func countUsers() int {

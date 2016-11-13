@@ -116,11 +116,15 @@ func (db *DB) AddNewUser(clidb string, v interface{}) {
 }
 
 //AddRoom , adds room to database
-func (db *DB) AddRoom(cid []byte, data []byte) error {
+func (db *DB) AddRoom(cid []byte, v interface{}) error {
 	err := db.conn.Update(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists([]byte("rooms"))
 		if err != nil {
 			return err
+		}
+		data, errr := marshalJSON(v)
+		if errr != nil {
+			return errr
 		}
 		err = bucket.Put(cid, data)
 		if err != nil {

@@ -18,8 +18,11 @@ type DB struct {
 //Datastore , db interface
 type Datastore interface {
 	CreateBuckets() error
-	AddRoom(cid []byte, data []byte) error
+	AddRoom(cid []byte, v interface{}) error
+	GetRoom(cid []byte) ([]byte, error)
 	ReadRooms() (map[string][]byte, error)
+	DeleteRoom(cid string) error
+	AddDeletedRoom(cid []byte, v interface{}) error
 	AddNewUser(clidb string, v interface{})
 	GetUser(clidb string) ([]byte, error)
 	DeleteUser(clidb string) error
@@ -90,6 +93,18 @@ func (db *DB) DeleteUser(clidb string) error {
 	return nil
 }
 
+func (db *DB) DeleteRoom(cid string) error {
+	err := db.conn.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("rooms"))
+		b.Delete([]byte(cid))
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 //AddNewUser , adduser to db
 func (db *DB) AddNewUser(clidb string, v interface{}) {
 	err := db.conn.Update(func(tx *bolt.Tx) error {
@@ -119,6 +134,26 @@ func (db *DB) AddNewUser(clidb string, v interface{}) {
 func (db *DB) AddRoom(cid []byte, v interface{}) error {
 	err := db.conn.Update(func(tx *bolt.Tx) error {
 		bucket, err := tx.CreateBucketIfNotExists([]byte("rooms"))
+		if err != nil {
+			return err
+		}
+		data, errr := marshalJSON(v)
+		if errr != nil {
+			return errr
+		}
+		err = bucket.Put(cid, data)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	return err
+}
+
+func (db *DB) AddDeletedRoom(cid []byte, v interface{}) error {
+	err := db.conn.Update(func(tx *bolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte("deletedRooms"))
 		if err != nil {
 			return err
 		}

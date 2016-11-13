@@ -138,26 +138,31 @@ type Channel struct {
 	Admins     []string
 }
 
-var channels map[string]*Channel
+type DelChannel struct {
+	Cid        string
+	DeletedBy  string
+	InvokerUID string
+	DeleteDate time.Time
+}
 
 //getChannelList , allways to copy all existing rooms into channel struct
 func (b *Bot) getChannelList() {
-	chList := make(map[string]*Channel)
+	var rooms int
 	start := time.Now()
 	defer func() {
-		log.Println("Loaded ", len(chList), "rooms in ", time.Since(start))
+		infoLog.Println("Loaded ", rooms, "rooms in ", time.Since(start))
 	}()
-	log.Println("Loading rooms")
+	infoLog.Println("Loading rooms")
 
 	channel := &Channel{}
 	cl, err := b.exec(channelList())
 	if err != nil {
-		log.Println(err)
+		errLog.Println(err)
 		return
 	}
 	spacers := []string{"595", "639"}
 	for _, vMain := range cl.params {
-
+		rooms++
 		for _, spacer := range spacers {
 
 			if vMain["pid"] == spacer {
@@ -184,7 +189,6 @@ func (b *Bot) getChannelList() {
 				}
 
 				channel.Childs = child
-				chList[vMain["cid"]] = channel
 				encode, err := json.Marshal(channel)
 				if err != nil {
 					log.Println(err)
@@ -199,23 +203,7 @@ func (b *Bot) getChannelList() {
 
 }
 
-func (b *Bot) writeChannelsIntoMemo() {
-	chList := make(map[string]*Channel)
-	channel := &Channel{}
-	chMap, err := b.db.ReadRooms()
-	if err != nil {
-		errLog.Fatalln(err)
-	}
-	for k, v := range chMap {
-		err := channel.unmarshalJSON(v)
-		if err != nil {
-			errLog.Fatalln(err)
-		}
-		chList[k] = channel
-	}
-}
-
-func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) []string {
+func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) ([]string, error) {
 	var cids []string
 	if !isMain {
 		for i := 1; i <= subRooms; i++ {
@@ -225,15 +213,15 @@ func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) []stri
 			}
 			cids = append(cids, cid.params[0]["cid"])
 		}
-		return cids
+		return cids, nil
 	}
 
 	cid, err := b.exec(createRoom(name, pid))
 	if err != nil {
-		errLog.Println(err)
+		return []string{}, err
 	}
-	infoLog.Println("Room with id: ", cid, " was created")
-	return []string{cid.params[0]["cid"]}
+	infoLog.Println("Room with id: ", cid.params[0]["cid"], " was created")
+	return []string{cid.params[0]["cid"]}, nil
 }
 
 func countUsers() int {
@@ -249,6 +237,14 @@ func isSpacer(s string) (string, bool) {
 	}
 	return "", false
 
+}
+
+func getDBFromClid(id string) string {
+	dbID, ok := usersByClid[id]
+	if !ok {
+		return ""
+	}
+	return dbID
 }
 
 func (u *User) unmarshalJSON(data []byte) error {

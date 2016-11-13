@@ -273,9 +273,31 @@ func (b *Bot) notifyAction(r *Response) {
 		//to change date if they use room, otherwise edit
 		return
 	case "notifychannelcreated":
+		debugLog.Println(r.params[0])
+		if r.params[0]["invokeruid"] != "serveradmin" {
+			b.roomFromNotify(r)
+		} else {
+			infoLog.Println("Room created by command")
+		}
 		return
 	case "notifychannelmoved":
+		debugLog.Println(r.params)
 		return
+	case "notifychanneldeleted":
+		warnLog.Println("Room ", r.params[0]["cid"], "deleted by", r.params[0]["invokername"])
+		delChannel := &DelChannel{
+			Cid:        r.params[0]["cid"],
+			DeletedBy:  r.params[0]["invokername"],
+			InvokerUID: r.params[0]["invokeruid"],
+			DeleteDate: time.Now(),
+		}
+		b.db.AddDeletedRoom([]byte(delChannel.Cid), delChannel)
+		room, err := b.db.GetRoom([]byte(delChannel.Cid))
+		if err != nil || len(room) == 0 {
+			errLog.Println("No such room in databse cannot delete it from it")
+			return
+		}
+		b.db.DeleteRoom(delChannel.Cid)
 	default:
 		warnLog.Println("Unusual action: ", r.action)
 		return
@@ -299,6 +321,41 @@ func (b *Bot) actionMove(r *Response) {
 			}
 		}
 	}
+}
+
+func (b *Bot) roomFromNotify(r *Response) {
+	channel := &Channel{}
+	encodedRoom, err := b.db.GetRoom([]byte(r.params[0]["cid"]))
+	if err != nil {
+		errLog.Println("Database error: ", err)
+	}
+	if len(encodedRoom) == 0 {
+		owner, er := b.exec(clientFind(r.params[0]["channel_name"]))
+		if er != nil {
+			errLog.Println(err)
+		}
+		clientDB := getDBFromClid(owner.params[0]["clid"])
+		if clientDB != "" {
+			b.exec(setChannelAdmin(clientDB, r.params[0]["cid"]))
+		}
+		infoLog.Println("Creating main room")
+		channel.Cid = r.params[0]["cid"]
+		channel.Spacer = r.params[0]["cpid"]
+		channel.OwnerDB = clientDB
+		channel.CreatedBy = r.params[0]["invokername"]
+		channel.CreateDate = time.Now()
+		channel.Name = r.params[0]["channel_name"]
+		channel.Childs = []string{}
+		channel.Admins = []string{clientDB}
+		b.db.AddRoom([]byte(channel.Cid), channel)
+		return
+	}
+	err = channel.unmarshalJSON(encodedRoom)
+	if err != nil {
+		errLog.Println("Channel decoding error:", err)
+	}
+	channel.Childs = append(channel.Childs, r.params[0]["cid"])
+	b.db.AddRoom([]byte(channel.Cid), channel)
 }
 
 func (b *Bot) actionMsg(r *Response, u *User) {
@@ -352,33 +409,46 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 				return
 			}
 			go func() {
-				defer func() { eventLog.Println("Room created with success: ", room[2]) }()
-				cid := b.newRoom(room[2], pid, true, 0)
-				if cid[0] != "" {
-					b.newRoom("", cid[0], false, 2)
-				}
-				client, err := b.exec(clientDBID(room[1], ""))
-				if err != nil {
-					errLog.Println(err)
-					return
-				}
-				log.Println(client.params)
-				_, errC := b.exec(setChannelAdmin(client.params[0]["cldbid"], cid[0]))
+				cid, errC := b.newRoom(room[2], pid, true, 0)
 				if errC != nil {
 					errLog.Println(errC)
+					return
+				}
+				if cid[0] != "" {
+					cidChild, err := b.newRoom("", cid[0], false, 2)
+					if err != nil {
+						return
+					}
+					cid = append(cid, cidChild[0])
+					cid = append(cid, cidChild[1])
+				}
+				cinfo, err := b.exec(clientFind(room[2]))
+				if err != nil {
+					errLog.Println("Client info command ", err)
+					return
+				}
+				dbID := getDBFromClid(cinfo.params[0]["clid"])
+				if dbID == "" {
+					errLog.Println("Client dbID is empty")
+					return
+				}
+				_, errS := b.exec(setChannelAdmin(dbID, cid[0]))
+				if errS != nil {
+					errLog.Println("Set Admin command: ", errC)
 				}
 				var admins []string
-				admins = append(admins, client.params[0]["cldbid"])
+				admins = append(admins, dbID)
 				channel := &Channel{
 					Cid:        cid[0],
 					Spacer:     pid,
 					Name:       room[2],
-					OwnerDB:    client.params[0]["cldbid"],
+					OwnerDB:    dbID,
 					CreateDate: time.Now(),
 					CreatedBy:  "",
 					Childs:     cid[1:],
 					Admins:     admins,
 				}
+				b.db.AddRoom([]byte(cid[0]), channel)
 			}()
 		}
 

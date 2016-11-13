@@ -238,6 +238,17 @@ func countUsers() int {
 	return len(users)
 }
 
+func isSpacer(s string) (string, bool) {
+	spacers := map[string]string{"test": "595", "V2": "26", "V3": "27", "S1": "19", "S2": "20", "S3": "21", "S4": "28"}
+	for k, v := range spacers {
+		if s == k {
+			return v, true
+		}
+	}
+	return "", false
+
+}
+
 func (u *User) unmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &u)
 }

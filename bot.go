@@ -74,7 +74,7 @@ func (b *Bot) newBot(addr string, isMaster bool) error {
 	//Launches ping
 	go b.botSchedules()
 
-	b.Uptime = time.Now().UnixNano()
+	b.Uptime = time.Now().Unix()
 	if isMaster {
 		b.ID = "master"
 		bots[b.ID] = b
@@ -142,7 +142,6 @@ func (b *Bot) run() {
 				if strings.Index(m, "TS3") == 0 || strings.Index(m, "Welcome") == 0 || strings.Index(m, "version") == 0 {
 					continue
 				}
-
 				if strings.Index(m, "error") == 0 {
 					b.passError(m)
 					continue
@@ -201,97 +200,19 @@ func (b *Bot) notifyAction(r *Response) {
 		if !ok {
 			return
 		}
-
-		if strings.Index(r.params[0]["msg"], "!uptime") == 0 {
-			bot := strings.SplitN(r.params[0]["msg"], " ", 2)
-			if len(bot) == 2 {
-				botCheck, ok := bots[bot[1]]
-				if ok && b.ID == bot[1] {
-					eventLog.Println("Bot ", botCheck.ID, " uptime is ", botCheck.Uptime)
-					return
-				}
-
-			}
-
+		if strings.Index(r.params[0]["msg"], "!") == 0 {
+			b.actionMsg(r, user)
+			return
 		}
-
-		if strings.Index(r.params[0]["msg"], "!quit") == 0 {
-			bot := strings.SplitN(r.params[0]["msg"], " ", 2)
-			if len(bot) == 2 {
-				botToClose, ok := bots[bot[1]]
-				if ok {
-					botToClose.conn.Close()
-					warnLog.Println("User ", user.Nick, " invoked command to turn of bot")
-					return
-				}
-				errLog.Println("There is no such bot as ", bot[1])
-			}
-
-		}
-
-		if b.isMaster && strings.Index(r.params[0]["msg"], "!room") == 0 {
-			room := strings.SplitN(r.params[0]["msg"], " ", 2)
-			if len(room) == 2 {
-				go func() {
-					defer func() { eventLog.Println("Room created with success: ", room[1]) }()
-					cid := b.newRoom(room[1], "595", true, 0)
-					if cid != "" {
-						b.newRoom("", cid, false, 2)
-					}
-					client, err := b.exec(clientDBID(room[1], ""))
-					if err != nil {
-						errLog.Println(err)
-						return
-					}
-					log.Println(client.params)
-					_, errC := b.exec(setChannelAdmin(client.params[0]["cldbid"], cid))
-					if errC != nil {
-						errLog.Println(errC)
-					}
-
-				}()
-
-			}
-		}
-
-		if b.isMaster && strings.Index(r.params[0]["msg"], "!create") == 0 {
-			if !user.IsAdmin {
-				warnLog.Println("User ", user.Nick, " is not an Admin!")
-				return
-			}
-			infoLog.Println("Created by: ", b.ID)
-			newb := &Bot{}
-			err := newb.newBot("teamspot.eu:10011", false)
-			if err != nil {
-				log.Println(err)
-				return
-			}
-			infoLog.Println("New bot with id: ", newb.ID, "total of", len(bots), "in system", "bot created by ", user.Nick)
-			newb.execAndIgnore(cmdsSub, true)
-		}
-		//Test function
-		if b.isMaster && strings.Index(r.params[0]["msg"], "!admin") == 0 {
-			if !user.IsAdmin {
-				warnLog.Println(user.Nick, " is not Admin")
-				return
-			}
-			name := strings.SplitN(r.params[0]["msg"], " ", 2)
-			if len(name) == 2 {
-				go addAdmin(name[1], b)
-			}
-
-		}
-
+		debugLog.Println("Some normal message")
 	case "notifyclientmoved":
 		go func() {
 			cinfo, ok := usersByClid[r.params[0]["clid"]]
 			if !ok {
-
 				return
 			}
 			user, ok := users[cinfo]
 			if ok {
-
 				user.Moves.MoveStatus++
 				if user.Moves.MoveStatus == 2 {
 					user.newRoomTrackerRecord(r.params[0]["ctid"])
@@ -379,6 +300,112 @@ func (b *Bot) notifyAction(r *Response) {
 }
 
 func (b *Bot) actionMsg(r *Response, u *User) {
+	switch {
+	case strings.Index(r.params[0]["msg"], "!help") == 0:
+		help := strings.SplitN(r.params[0]["msg"], " ", 2)
+		if len(help) == 1 {
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Komendy, które możesz użyć"))
+			return
+		}
+
+		debugLog.Println("Invoked help command")
+		go b.exec(sendMessage("1", r.params[0]["invokerid"], "Zobaczysz to"))
+		return
+	case strings.Index(r.params[0]["msg"], "!uptime") == 0:
+		bot := strings.SplitN(r.params[0]["msg"], " ", 2)
+		if len(bot) == 2 {
+			botCheck, ok := bots[bot[1]]
+			if ok && b.ID == bot[1] {
+				t := time.Unix(botCheck.Uptime, 0)
+				since := time.Since(t)
+				if since < 3600 {
+					since.Minutes()
+				}
+				eventLog.Println("Bot ", botCheck.ID, " uptime is", since.String())
+				return
+			}
+
+		}
+		return
+
+	case strings.Index(r.params[0]["msg"], "!quit") == 0:
+		bot := strings.SplitN(r.params[0]["msg"], " ", 2)
+		if len(bot) == 2 {
+			botToClose, ok := bots[bot[1]]
+			if ok {
+				botToClose.conn.Close()
+				warnLog.Println("User ", u.Nick, " invoked command to turn of bot")
+				return
+			}
+			errLog.Println("There is no such bot as ", bot[1])
+		}
+		return
+
+	case b.isMaster && strings.Index(r.params[0]["msg"], "!room") == 0:
+		room := strings.SplitN(r.params[0]["msg"], " ", 3)
+		if len(room) == 3 {
+			pid, ok := isSpacer(room[1])
+			if !ok {
+				errLog.Println("No such spacer as ", room[1])
+				return
+			}
+			go func() {
+				defer func() { eventLog.Println("Room created with success: ", room[2]) }()
+				cid := b.newRoom(room[2], pid, true, 0)
+				if cid != "" {
+					b.newRoom("", cid, false, 2)
+				}
+				client, err := b.exec(clientDBID(room[1], ""))
+				if err != nil {
+					errLog.Println(err)
+					return
+				}
+				log.Println(client.params)
+				_, errC := b.exec(setChannelAdmin(client.params[0]["cldbid"], cid))
+				if errC != nil {
+					errLog.Println(errC)
+				}
+
+			}()
+		}
+
+		return
+
+	case b.isMaster && strings.Index(r.params[0]["msg"], "!create") == 0:
+		if !u.IsAdmin {
+			warnLog.Println("User ", u.Nick, " is not an Admin!")
+			return
+		}
+
+		infoLog.Println("Created by: ", b.ID)
+		newb := &Bot{}
+		err := newb.newBot("teamspot.eu:10011", false)
+		if err != nil {
+			log.Println(err)
+			return
+		}
+
+		infoLog.Println("New bot with id: ", newb.ID, "total of", len(bots), "in system", "bot created by ", u.Nick)
+		newb.execAndIgnore(cmdsSub, true)
+
+		return
+
+	case b.isMaster && strings.Index(r.params[0]["msg"], "!admin") == 0:
+
+		if !u.IsAdmin {
+			warnLog.Println(u.Nick, " is not Admin")
+			return
+		}
+		name := strings.SplitN(r.params[0]["msg"], " ", 2)
+		if len(name) == 2 {
+			go addAdmin(name[1], b)
+		}
+
+		return
+
+	default:
+		warnLog.Println("User invoked unknow command - ", u.Nick, " commad was ", r.params[0]["msg"])
+	}
 
 }
 

@@ -11,10 +11,11 @@ import (
 
 //Config , TeamSpeak 3 bot start up
 type Config struct {
-	Login     string `jsong:"Login"`
-	Password  string `json:"Password"`
-	ServerID  string `json:"ServerID"`
-	HeadAdmin string `json:"HeadAdminCliDB"`
+	Login     string   `jsong:"Login"`
+	Password  string   `json:"Password"`
+	ServerID  string   `json:"ServerID"`
+	HeadAdmin string   `json:"HeadAdminCliDB"`
+	Spacers   []string `json:"Spacers"`
 }
 
 var (
@@ -68,7 +69,19 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
-
+		if len(cfg.Spacers) == 0 {
+			debugLog.Println("Is empty")
+			s := b.loadSpacers()
+			cfg.Spacers = s
+			data, err := cfg.marshalJSON()
+			if err != nil {
+				errLog.Println(err)
+			}
+			err = ioutil.WriteFile("./config.json", data, 0644)
+			if err != nil {
+				errLog.Println(err)
+			}
+		}
 		// TODO add flas for first run
 		// First time run uncomment
 		//bot.getChannelList()
@@ -96,4 +109,8 @@ func loadConfig() (*Config, error) {
 //Unmarshaling json into Cofig struct
 func (c *Config) unMarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &c)
+}
+
+func (c *Config) marshalJSON() ([]byte, error) {
+	return json.MarshalIndent(c, "", "  ")
 }

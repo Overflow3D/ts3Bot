@@ -211,3 +211,22 @@ func clientFind(user string) *Command {
 		},
 	}
 }
+
+func channelInfo(cid string) *Command {
+	return &Command{
+		Name: "channelinfo",
+		params: map[string]string{
+			"cid": cid,
+		},
+	}
+}
+
+func deleteChannel(cid string) *Command {
+	return &Command{
+		Name: "channeldelete",
+		params: map[string]string{
+			"cid":   cid,
+			"force": "1",
+		},
+	}
+}

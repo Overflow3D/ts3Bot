@@ -13,6 +13,8 @@ import (
 	"github.com/overflow3d/ts3_/database"
 )
 
+const master = "master"
+
 //Bot , is a bot struct
 type Bot struct {
 	ID       string
@@ -76,13 +78,13 @@ func (b *Bot) newBot(addr string, isMaster bool) error {
 
 	b.Uptime = time.Now().Unix()
 	if isMaster {
-		b.ID = "master"
+		b.ID = master
 		bots[b.ID] = b
 		b.isMaster = true
 		return nil
 	}
 
-	master, ok := bots["master"]
+	master, ok := bots[master]
 	if !ok {
 		return errors.New("Couldn't copy database")
 	}
@@ -121,7 +123,7 @@ func (b *Bot) cleanUp() {
 	b.stop <- 1
 	close(b.output)
 	close(b.stopPing)
-	if b.ID == "master" {
+	if b.ID == master {
 		for bot := range bots {
 			i := bots[bot]
 			i.conn.Close()
@@ -171,17 +173,19 @@ func (b *Bot) notifyRun() {
 //Schedules for bot
 func (b *Bot) botSchedules() {
 	ping := time.NewTicker(305 * time.Second)
-	cleanMaps := time.NewTicker(24 * time.Hour)
+	cleanRooms := time.NewTicker(48 * time.Hour)
 	for {
 		select {
 		case <-ping.C:
-			b.writeToCon("version")
+			go b.exec(version())
 			infoLog.Println("Ping from bot: ", b.ID, " was send to telnet")
-		case <-cleanMaps.C:
-			log.Println("Clean maps")
+		case <-cleanRooms.C:
+			if b.ID == master {
+				infoLog.Println("Check for empty rooms")
+			}
 		case <-b.stopPing:
 			ping.Stop()
-			cleanMaps.Stop()
+			cleanRooms.Stop()
 			return
 		}
 	}
@@ -239,8 +243,16 @@ func (b *Bot) notifyAction(r *Response) {
 		}
 
 	case "notifyclientleftview":
+		if r.params[0]["reasonmsg"] == "deselected virtualserver" {
+			infoLog.Println("Sever query bot event deselected virtualserver")
+			return
+		}
 		userClid, ok := usersByClid[r.params[0]["clid"]]
 		if !ok {
+			if r.params[0]["reasonmsg"] == "connection lost" {
+				debugLog.Println("Probably bot turning off", r.params)
+				return
+			}
 			warnLog.Println("Abnormal action")
 			return
 		}
@@ -249,17 +261,19 @@ func (b *Bot) notifyAction(r *Response) {
 			warnLog.Println("Abnormal action")
 			return
 		}
+		debugLog.Println(r.params)
 		if r.params[0]["reasonid"] == "5" {
+			infoLog.Println(user.Nick, "kicked from server by", r.params[0]["invokername"])
 			user.BasicInfo.Kick++
 		}
 
 		if r.params[0]["reasonid"] == "6" {
+			infoLog.Println(user.Nick, "banned from server by", r.params[0]["invokername"])
 			user.BasicInfo.Ban++
 		}
 
 		if r.params[0]["reasonid"] == "4" {
-			log.Println("Kick from channel")
-			log.Println(r.params[0]["invokerid"], r.params[0]["invokername"])
+			infoLog.Println(user.Nick, " kicked from channel", r.params[0]["cid"])
 		}
 
 		b.db.AddNewUser(user.Clidb, user)
@@ -332,7 +346,7 @@ func (b *Bot) roomFromNotify(r *Response) {
 	if len(encodedRoom) == 0 {
 		owner, er := b.exec(clientFind(r.params[0]["channel_name"]))
 		if er != nil {
-			errLog.Println(err)
+			errLog.Println("Incorrect owner id:", err)
 		}
 		clientDB := getDBFromClid(owner.params[0]["clid"])
 		if clientDB != "" {
@@ -486,6 +500,58 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 
 		return
 
+	case strings.Index(r.params[0]["msg"], "!check") == 0:
+		go b.checkIfRoomOutDate()
+		return
+	case strings.Index(r.params[0]["msg"], "!token") == 0:
+		token := strings.SplitN(r.params[0]["msg"], " ", 2)
+		if len(token) == 2 {
+			debugLog.Println(token[1])
+			t, e := b.db.GetToken(token[1])
+			if e != nil {
+				errLog.Println("Database error: ", e)
+				return
+			} else if len(t) == 0 {
+				debugLog.Println("Incorrect token")
+				return
+			}
+			tok := &Token{}
+			e = tok.unmarshalJSON(t)
+			if e != nil {
+				errLog.Println("unmarshal error: ", e)
+				return
+			}
+			debugLog.Println(tok.Cid, tok.Token)
+
+		}
+		return
+	case strings.Index(r.params[0]["msg"], "!newToken") == 0:
+		token := strings.SplitN(r.params[0]["msg"], " ", 3)
+		if len(token) == 3 {
+			if len(token[2]) < 5 {
+				debugLog.Println("New token to short")
+				return
+			}
+			t, e := b.db.GetToken(token[1])
+			if e != nil {
+				errLog.Println("Database error: ", e)
+				return
+			} else if len(t) == 0 {
+				debugLog.Println("Incorrect token")
+				return
+			}
+			tok := &Token{}
+			e = tok.unmarshalJSON(t)
+			if e != nil {
+				errLog.Println("unmarshal error: ", e)
+				return
+			}
+			b.db.DeleteToken(token[1])
+			tok.Token = token[2]
+			b.db.AddToken(tok.Token, tok)
+			infoLog.Println("User", u.Nick, "changed token", token[1], "to new token", token[2])
+		}
+		return
 	default:
 		warnLog.Println("User invoked unknow command - ", u.Nick, " commad was ", r.params[0]["msg"])
 	}
@@ -498,12 +564,6 @@ func (b *Bot) passNotify(notify string) {
 
 func (b *Bot) passError(err string) {
 	b.err <- err
-}
-
-//Mostly for pings, so you don't read
-//Goroutine channels
-func (b *Bot) writeToCon(s string) {
-	fmt.Fprintf(b.conn, "%s\n\r", s)
 }
 
 //Formats output from telnet into Reponse struct

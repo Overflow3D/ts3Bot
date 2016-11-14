@@ -26,6 +26,9 @@ type Datastore interface {
 	AddNewUser(clidb string, v interface{})
 	GetUser(clidb string) ([]byte, error)
 	DeleteUser(clidb string) error
+	AddToken(token string, v interface{}) error
+	GetToken(token string) ([]byte, error)
+	DeleteToken(token string) error
 	Close()
 }
 
@@ -85,6 +88,57 @@ func (db *DB) DeleteUser(clidb string) error {
 	err := db.conn.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte("users"))
 		b.Delete([]byte(clidb))
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (db *DB) AddToken(token string, v interface{}) error {
+	err := db.conn.Update(func(tx *bolt.Tx) error {
+		bucket, err := tx.CreateBucketIfNotExists([]byte("tokens"))
+		if err != nil {
+			return err
+		}
+		data, errr := marshalJSON(v)
+		if errr != nil {
+			return errr
+		}
+		k := []byte(token)
+		err = bucket.Put(k, data)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+
+	return err
+}
+
+func (db *DB) GetToken(token string) ([]byte, error) {
+	var data []byte
+	err := db.conn.View(func(tx *bolt.Tx) error {
+		var err error
+		b := tx.Bucket([]byte("tokens"))
+		k := []byte(token)
+		data = b.Get(k)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return data, nil
+}
+
+func (db *DB) DeleteToken(token string) error {
+	err := db.conn.Update(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("tokens"))
+		b.Delete([]byte(token))
 		return nil
 	})
 	if err != nil {

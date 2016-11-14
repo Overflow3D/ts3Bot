@@ -261,7 +261,7 @@ func (b *Bot) notifyAction(r *Response) {
 			warnLog.Println("Abnormal action")
 			return
 		}
-		debugLog.Println(r.params)
+
 		if r.params[0]["reasonid"] == "5" {
 			infoLog.Println(user.Nick, "kicked from server by", r.params[0]["invokername"])
 			user.BasicInfo.Kick++
@@ -384,9 +384,9 @@ func (b *Bot) roomFromNotify(r *Response) {
 
 		b.db.AddRoom([]byte(channel.Cid), channel)
 		b.db.AddToken(token, tok)
-		go b.exec(sendMessage("1", r.params[0]["invokerid"], "Token dla utworzonego pokoju to: "+tok.Token))
+		go b.exec(sendMessage("1", r.params[0]["invokerid"], "Token dla utworzonego pokoju to: [b][color=red]"+tok.Token+"[/color][/b]"))
 		debugLog.Println(clientDB)
-		go b.exec(sendMessage("1", owner.params[0]["clid"], "Token dla Twojego kanału by odzyskać channel Admina to "+tok.Token+" możesz też zmienić token komendą !newToken na kanale Sprawa dla Admina"))
+		go b.exec(sendMessage("1", owner.params[0]["clid"], "Token dla Twojego kanału by odzyskać channel Admina to [b][color=red] "+tok.Token+" [/color][/b]możesz też zmienić token komendą !newToken na kanale Sprawa dla Admina"))
 		return
 	}
 	err = channel.unmarshalJSON(encodedRoom)
@@ -505,7 +505,12 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 					Admins:     admins,
 				}
 				b.db.AddRoom([]byte(cid[0]), channel)
-				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Pokój o nazwie "+channel.Name+" z tokenem "+v.Token+" został sukcesywnie utworzony!"))
+				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Pokój o nazwie "+channel.Name+" z tokenem  [b][color=red]"+v.Token+" [/color][/b]został sukcesywnie utworzony!"))
+				if cinfo.params[0]["clid"] != "" {
+					go b.exec(sendMessage("1", cinfo.params[0]["clid"], "Token dla Twojego kanału to [b][color=red]"+v.Token+" [/color][/b]służy on do odzysania channel Admina  możesz go zmienić komendą !newToken na kanale Sprawa dla Admina"))
+				} else {
+					go b.exec(sendMessage("1", r.params[0]["clid"], "Nazwa pokoju utworzonego przez Ciebie nie zawiera poprawnej nazwy użytkownika, proszę wysłać mu token, który otrzymałeś w wiadomości prywatnej by naprawić ten błąd"))
+				}
 			}()
 		}
 

@@ -52,6 +52,12 @@ func (b *Bot) execAndIgnore(cmd []*Command, newBot bool) {
 
 		if newBot {
 			b.exec(nickname(b.ID))
+		} else {
+			r, e := b.exec(whoami())
+			if e != nil {
+				return
+			}
+			b.exec(clientMove(r.params[0]["client_id"], "595"))
 		}
 	}
 
@@ -69,6 +75,12 @@ func version() *Command {
 }
 
 //DEFAULT TEAMSPEAK3 COMMANDS
+
+func whoami() *Command {
+	return &Command{
+		Name: "whoami",
+	}
+}
 
 func useServer(id string) *Command {
 	return &Command{
@@ -92,6 +104,16 @@ func logIn(login string, pass string) *Command {
 func channelList() *Command {
 	return &Command{
 		Name: "channellist",
+	}
+}
+
+func clientMove(clid, cid string) *Command {
+	return &Command{
+		Name: "clientmove",
+		params: map[string]string{
+			"clid": clid,
+			"cid":  cid,
+		},
 	}
 }
 

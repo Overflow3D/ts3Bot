@@ -15,6 +15,7 @@ type Config struct {
 	Password  string   `json:"Password"`
 	ServerID  string   `json:"ServerID"`
 	HeadAdmin string   `json:"HeadAdminCliDB"`
+	Admins    []string `json:"Admins"`
 	Spacers   []string `json:"Spacers"`
 }
 

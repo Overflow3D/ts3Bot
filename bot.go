@@ -279,7 +279,6 @@ func (b *Bot) notifyAction(r *Response) {
 		b.db.AddNewUser(user.Clidb, user)
 		delete(users, user.Clidb)
 		delete(usersByClid, r.params[0]["clid"])
-		debugLog.Println("Size of users map: ", len(users))
 	case "notifychanneldescriptionchanged":
 		//In case if I find function for it
 		//Maybe if you are to lazy to add auto checking
@@ -287,15 +286,29 @@ func (b *Bot) notifyAction(r *Response) {
 		//to change date if they use room, otherwise edit
 		return
 	case "notifychannelcreated":
-		debugLog.Println(r.params[0])
 		if r.params[0]["invokeruid"] != "serveradmin" {
-			b.roomFromNotify(r)
+			eventLog.Println("Room created manually by user:", r.params[0]["invokername"], "room name: ", r.params[0]["channel_name"])
+			go b.roomFromNotify(r)
 		} else {
-			infoLog.Println("Room created by command")
+			eventLog.Println("Room: ", r.params[0]["channel_name"], "created by bot", b.ID)
 		}
 		return
 	case "notifychannelmoved":
-		debugLog.Println(r.params)
+		eventLog.Println("User", r.params[0]["invokername"], "moved channel ", r.params[0]["cid"], "to ", r.params[0]["cpid"])
+		room, e := b.db.GetRoom([]byte(r.params[0]["cid"]))
+		if e != nil {
+			errLog.Println("Database error:", e)
+		}
+		if len(room) != 0 {
+			channel := &Channel{}
+			channel.unmarshalJSON(room)
+			channel.Spacer = r.params[0]["cpid"]
+			err := b.db.AddRoom([]byte(channel.Cid), channel)
+			if err != nil {
+				errLog.Println("Database error:", e)
+			}
+
+		}
 		return
 	case "notifychanneldeleted":
 		warnLog.Println("Room ", r.params[0]["cid"], "deleted by", r.params[0]["invokername"])
@@ -347,11 +360,18 @@ func (b *Bot) roomFromNotify(r *Response) {
 		owner, er := b.exec(clientFind(r.params[0]["channel_name"]))
 		if er != nil {
 			errLog.Println("Incorrect owner id:", err)
+			b.exec(sendMessage("1", r.params[0]["invokerid"], "Wprowadziłeś niepoprawną nazwę właściwiela kanału wyśli użytkownikowi w prywatnej wiadomości token, który otrzymałeś pod spodem. Błąd telnet: "+er.Error()))
+
 		}
 		clientDB := getDBFromClid(owner.params[0]["clid"])
 		if clientDB != "" {
 			b.exec(setChannelAdmin(clientDB, r.params[0]["cid"]))
+			channel.Admins = []string{clientDB}
+		} else {
+			channel.Admins = []string{}
 		}
+		token := randString(7)
+		tok := &Token{Token: token, Cid: r.params[0]["cid"]}
 		infoLog.Println("Creating main room")
 		channel.Cid = r.params[0]["cid"]
 		channel.Spacer = r.params[0]["cpid"]
@@ -359,9 +379,14 @@ func (b *Bot) roomFromNotify(r *Response) {
 		channel.CreatedBy = r.params[0]["invokername"]
 		channel.CreateDate = time.Now()
 		channel.Name = r.params[0]["channel_name"]
+		channel.Token = token
 		channel.Childs = []string{}
-		channel.Admins = []string{clientDB}
+
 		b.db.AddRoom([]byte(channel.Cid), channel)
+		b.db.AddToken(token, tok)
+		go b.exec(sendMessage("1", r.params[0]["invokerid"], "Token dla utworzonego pokoju to: "+tok.Token))
+		debugLog.Println(clientDB)
+		go b.exec(sendMessage("1", owner.params[0]["clid"], "Token dla Twojego kanału by odzyskać channel Admina to "+tok.Token+" możesz też zmienić token komendą !newToken na kanale Sprawa dla Admina"))
 		return
 	}
 	err = channel.unmarshalJSON(encodedRoom)
@@ -377,12 +402,15 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 	case strings.Index(r.params[0]["msg"], "!help") == 0:
 		help := strings.SplitN(r.params[0]["msg"], " ", 2)
 		if len(help) == 1 {
-			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Komendy, które możesz użyć"))
+			msg := "\nDostępne komendy dla użytkownika " + " to:\n" +
+				"[b]!help[/b] -> wszystkie dostępne komendy na bocie \n[b]!token[/b] -> pozwala przywrócić użytkownikowi channel Admina \n[b]!newToken[/b] -> pozwala ustawić własny token składnia !newToken <stary> <nowy>\n\t\t [b][color=red]Przykład: !newToken xaSa#aO aXaExz [/color][/b]\n[b]!strefy[/b] -> Pokazuje strefy , na których można utworzyć kanał. \n[b]!room[/b] -> tworzy pokój wymaga parametrów:\n\t - Sterfa można znaleźć pod komendą !strefy\n\t - Nazwa użytkownika \n\t\t [b][color=red]Przykład: !room S1 Overflow3D[/color][/b]"
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], msg))
 			return
 		}
-
-		debugLog.Println("Invoked help command")
-		go b.exec(sendMessage("1", r.params[0]["invokerid"], "Zobaczysz to"))
+		return
+	case strings.Index(r.params[0]["msg"], "!strefy") == 0:
+		msg := "Dostępne strefy i ich skróty do tworzenia pokoju: \n\t-Strefa 1 -> S1 \n\t-Strefa 2 -> S2 \n\t-Strefa 3 -> S3 \n\t-Strefa 4 -> S4"
+		go b.exec(sendMessage("1", r.params[0]["invokerid"], msg))
 		return
 	case strings.Index(r.params[0]["msg"], "!uptime") == 0:
 		bot := strings.SplitN(r.params[0]["msg"], " ", 2)
@@ -395,37 +423,46 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 					since.Minutes()
 				}
 				eventLog.Println("Bot ", botCheck.ID, " uptime is", since.String())
+				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Jestem online od: "+since.String()))
 				return
 			}
-
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Nie ma takiego bota"))
 		}
 		return
 
-	case strings.Index(r.params[0]["msg"], "!quit") == 0:
+	case u.IsAdmin && strings.Index(r.params[0]["msg"], "!quit") == 0:
 		bot := strings.SplitN(r.params[0]["msg"], " ", 2)
 		if len(bot) == 2 {
 			botToClose, ok := bots[bot[1]]
 			if ok {
 				botToClose.conn.Close()
 				warnLog.Println("User ", u.Nick, " invoked command to turn of bot")
+				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Bot zostaję wyłączony!"))
 				return
 			}
 			errLog.Println("There is no such bot as ", bot[1])
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Podany bot nie istniej"))
 		}
 		return
 
 	case b.isMaster && strings.Index(r.params[0]["msg"], "!room") == 0:
 		room := strings.SplitN(r.params[0]["msg"], " ", 3)
 		if len(room) == 3 {
+			if !u.IsAdmin {
+				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Nie masz dostępu do danej komendy!"))
+				return
+			}
 			pid, ok := isSpacer(room[1])
 			if !ok {
 				errLog.Println("No such spacer as ", room[1])
+				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Pokój nie został utworzony powód: podana strefa nie istnieje"))
 				return
 			}
 			go func() {
 				cid, errC := b.newRoom(room[2], pid, true, 0)
 				if errC != nil {
 					errLog.Println(errC)
+					go b.exec(sendMessage("1", r.params[0]["invokerid"], "Pokój nie został utworzony powód: "+errC.Error()))
 					return
 				}
 				if cid[0] != "" {
@@ -439,17 +476,21 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 				cinfo, err := b.exec(clientFind(room[2]))
 				if err != nil {
 					errLog.Println("Client info command ", err)
-					return
+					go b.exec(sendMessage("1", r.params[0]["invokerid"], "Pokój utworzony bez Channel Admina powód:  "+err.Error()))
 				}
 				dbID := getDBFromClid(cinfo.params[0]["clid"])
 				if dbID == "" {
 					errLog.Println("Client dbID is empty")
-					return
+					go b.exec(sendMessage("1", r.params[0]["invokerid"], "Podczas tworzenia pokoju natrafiliśmy na bład, który wynika z braku użytkownika w mapie (zła nazwa użytkownika)"))
 				}
 				_, errS := b.exec(setChannelAdmin(dbID, cid[0]))
 				if errS != nil {
 					errLog.Println("Set Admin command: ", errC)
+					go b.exec(sendMessage("1", r.params[0]["invokerid"], "Niepoprawna nazwa użytkownika zaskutkowała błędem przy nadawaniu praw Channel Admina użytkownikowi. Szczegóły: "+errS.Error()))
 				}
+				token := randString(7)
+				v := &Token{Token: token, Cid: cid[0], LastChange: time.Now(), EditedBy: b.ID + " - room Created"}
+				b.db.AddToken(token, v)
 				var admins []string
 				admins = append(admins, dbID)
 				channel := &Channel{
@@ -459,10 +500,12 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 					OwnerDB:    dbID,
 					CreateDate: time.Now(),
 					CreatedBy:  "",
+					Token:      v.Token,
 					Childs:     cid[1:],
 					Admins:     admins,
 				}
 				b.db.AddRoom([]byte(cid[0]), channel)
+				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Pokój o nazwie "+channel.Name+" z tokenem "+v.Token+" został sukcesywnie utworzony!"))
 			}()
 		}
 
@@ -471,6 +514,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 	case b.isMaster && strings.Index(r.params[0]["msg"], "!create") == 0:
 		if !u.IsAdmin {
 			warnLog.Println("User ", u.Nick, " is not an Admin!")
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Nie masz dostępu do danej komendy!"))
 			return
 		}
 
@@ -478,41 +522,57 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		newb := &Bot{}
 		err := newb.newBot("teamspot.eu:10011", false)
 		if err != nil {
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], err.Error()))
 			log.Println(err)
 			return
 		}
 
 		infoLog.Println("New bot with id: ", newb.ID, "total of", len(bots), "in system", "bot created by ", u.Nick)
 		newb.execAndIgnore(cmdsSub, true)
-
+		go b.exec(sendMessage("1", r.params[0]["invokerid"], "Nowy bot został utworzony bez problemów"))
 		return
 
 	case b.isMaster && strings.Index(r.params[0]["msg"], "!admin") == 0:
 
-		if !u.IsAdmin {
+		if !u.IsAdmin && u.Perm < 9000 {
 			warnLog.Println(u.Nick, " is not Admin")
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Nie masz dostępu do danej komendy!"))
 			return
 		}
 		name := strings.SplitN(r.params[0]["msg"], " ", 2)
 		if len(name) == 2 {
-			go addAdmin(name[1], b)
+			go addAdmin(name[1], b, false)
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Dodano użytkownika"+name[1]+"do listy Adminów"))
 		}
 
 		return
-
+	case b.isMaster && strings.Index(r.params[0]["msg"], "!headAdmin") == 0:
+		if !u.IsAdmin && u.Perm < 9000 {
+			warnLog.Println(u.Nick, " is not Admin")
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Nie masz dostępu do danej komendy!"))
+			return
+		}
+		name := strings.SplitN(r.params[0]["msg"], " ", 2)
+		if len(name) == 2 {
+			go addAdmin(name[1], b, true)
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Dodano użytkownika"+name[1]+"do listy Adminów"))
+		}
+		return
 	case strings.Index(r.params[0]["msg"], "!check") == 0:
 		go b.checkIfRoomOutDate()
 		return
 	case strings.Index(r.params[0]["msg"], "!token") == 0:
 		token := strings.SplitN(r.params[0]["msg"], " ", 2)
 		if len(token) == 2 {
-			debugLog.Println(token[1])
 			t, e := b.db.GetToken(token[1])
 			if e != nil {
 				errLog.Println("Database error: ", e)
 				return
-			} else if len(t) == 0 {
-				debugLog.Println("Incorrect token")
+			}
+			sToken, ok := u.checkTokeAttempts(t)
+			if !ok {
+				debugLog.Println(sToken)
+				go b.exec(sendMessage("1", r.params[0]["invokerid"], sToken))
 				return
 			}
 			tok := &Token{}
@@ -521,7 +581,9 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 				errLog.Println("unmarshal error: ", e)
 				return
 			}
-			debugLog.Println(tok.Cid, tok.Token)
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], sToken))
+			go b.exec(setChannelAdmin(u.Clidb, tok.Cid))
+			infoLog.Println("User", u.Nick, " requested channel admin assign with valid token", tok.Token)
 
 		}
 		return
@@ -529,15 +591,18 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		token := strings.SplitN(r.params[0]["msg"], " ", 3)
 		if len(token) == 3 {
 			if len(token[2]) < 5 {
-				debugLog.Println("New token to short")
+				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Nowy token jest za krótki musi mieć minimum 5 znaków"))
 				return
 			}
 			t, e := b.db.GetToken(token[1])
 			if e != nil {
 				errLog.Println("Database error: ", e)
+				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Błąd bazy danych, proszę skontaktować się z Administatorem"))
 				return
-			} else if len(t) == 0 {
-				debugLog.Println("Incorrect token")
+			}
+			sToken, ok := u.checkTokeAttempts(t)
+			if !ok {
+				go b.exec(sendMessage("1", r.params[0]["invokerid"], sToken))
 				return
 			}
 			tok := &Token{}
@@ -548,7 +613,10 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 			}
 			b.db.DeleteToken(token[1])
 			tok.Token = token[2]
+			tok.EditedBy = u.Nick
+			tok.LastChange = time.Now()
 			b.db.AddToken(tok.Token, tok)
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Twój nowy token został poprawnie ustawiony na"+token[2]))
 			infoLog.Println("User", u.Nick, "changed token", token[1], "to new token", token[2])
 		}
 		return

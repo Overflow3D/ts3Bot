@@ -14,6 +14,7 @@ type User struct {
 	Nick      string
 	Moves     *Moves
 	BasicInfo *BasicInfo
+	Spam      *Spam
 	Perm      int
 	IsAdmin   bool
 }
@@ -36,6 +37,12 @@ type BasicInfo struct {
 	Ban          int
 }
 
+//Spam , user spam info
+type Spam struct {
+	TokenAttempts    int
+	LastTokenAttempt time.Time
+}
+
 var users = make(map[string]*User)
 var usersByClid = make(map[string]string)
 
@@ -44,6 +51,7 @@ func newUser(dbID string, clid string, nick string) *User {
 		Clidb: dbID,
 		Clid:  clid,
 		Nick:  nick,
+		Perm:  0,
 		Moves: &Moves{
 			Number:      0,
 			SinceMove:   time.Now(),
@@ -58,10 +66,15 @@ func newUser(dbID string, clid string, nick string) *User {
 			Kick:         0,
 			Ban:          0,
 		},
+		Spam: &Spam{
+			TokenAttempts:    0,
+			LastTokenAttempt: time.Now(),
+		},
 	}
 	if dbID == cfg.HeadAdmin {
 		eventLog.Println("HeadAdmin set to id", dbID, "with nickname ", newUser.Nick)
 		newUser.IsAdmin = true
+		newUser.Perm = 9999
 	}
 	return newUser
 }
@@ -109,7 +122,7 @@ func (u *User) isMoveExceeded(b *Bot) bool {
 	return false
 }
 
-func addAdmin(usr string, bot *Bot) {
+func addAdmin(usr string, bot *Bot, headAdmin bool) {
 	r, e := bot.exec(clientFind(usr))
 	if e != nil {
 		errLog.Println(e)
@@ -123,7 +136,13 @@ func addAdmin(usr string, bot *Bot) {
 	if ok {
 		user.IsAdmin = true
 		bot.db.AddNewUser(user.Clidb, user)
-		infoLog.Println("user", usr, "was set as an Admin")
+		if headAdmin {
+			user.Perm = 9999
+			infoLog.Println("user", usr, "was set as an HeadAdmin")
+		} else {
+			infoLog.Println("user", usr, "was set as an Admin")
+		}
+
 	}
 
 }
@@ -136,6 +155,7 @@ type Channel struct {
 	OwnerDB    string
 	CreateDate time.Time
 	CreatedBy  string
+	Token      string
 	Childs     []string
 	Admins     []string
 }
@@ -149,8 +169,10 @@ type DelChannel struct {
 }
 
 type Token struct {
-	Token string
-	Cid   string
+	Token      string
+	Cid        string
+	LastChange time.Time
+	EditedBy   string
 }
 
 //getChannelList , allways to copy all existing rooms into channel struct
@@ -228,10 +250,7 @@ func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) ([]str
 	if err != nil {
 		return []string{}, err
 	}
-	token := randString(7)
-	v := &Token{Token: token, Cid: cid.params[0]["cid"]}
-	b.db.AddToken(token, v)
-	infoLog.Println("Room with id: ", cid.params[0]["cid"], "and token: ", token, " was created")
+	infoLog.Println("Room with id: ", cid.params[0]["cid"], " was created")
 	return []string{cid.params[0]["cid"]}, nil
 }
 
@@ -369,6 +388,33 @@ func isNormalUserArea(pcid string) bool {
 	}
 
 	return false
+}
+
+func (u *User) checkTokeAttempts(valid []byte) (string, bool) {
+	if len(valid) == 0 {
+		if u.Spam.TokenAttempts < 3 {
+			u.Spam.TokenAttempts++
+			u.Spam.LastTokenAttempt = time.Now()
+			return "Podany token nie istnieje w bazie danych, proszę spróbować ponownie", false
+		}
+
+		if u.Spam.TokenAttempts >= 3 && time.Since(u.Spam.LastTokenAttempt).Seconds() < 360 {
+			return "Musisz odczekać 10 minut z powodu wprowadzenia 3 razy nieprawidłowego tokena", false
+		}
+		u.Spam.LastTokenAttempt = time.Now()
+		u.Spam.TokenAttempts = 0
+
+		return "Podany token nie istnieje w bazie danych, proszę spróbować ponownie", false
+	}
+	if u.Spam.TokenAttempts >= 3 && time.Since(u.Spam.LastTokenAttempt).Seconds() < 360 {
+		return "Musisz odczekać 10 minut z powodu wprowadzenia 3 razy nieprawidłowego tokena", false
+	}
+	if u.Spam.TokenAttempts >= 3 && time.Since(u.Spam.LastTokenAttempt).Seconds() > 360 {
+		u.Spam.LastTokenAttempt = time.Now()
+		u.Spam.TokenAttempts = 0
+	}
+
+	return "Powinieneś odzyskać dostęp Channel Admina na swoim kanale, w razie problemów skontaktuj się z Administratorem.", true
 }
 
 func (u *User) unmarshalJSON(data []byte) error {

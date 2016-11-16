@@ -214,7 +214,7 @@ func (b *Bot) notifyAction(r *Response) {
 	case "notifychanneledited":
 		debugLog.Println(r.action)
 	case "notifycliententerview":
-		userDB, err := b.db.GetUser(r.params[0]["client_database_id"])
+		userDB, err := b.db.GetRecord("users", r.params[0]["client_database_id"])
 		if err != nil {
 			errLog.Println(err)
 		}
@@ -234,7 +234,7 @@ func (b *Bot) notifyAction(r *Response) {
 		} else {
 			if r.params[0]["client_database_id"] != "1" && r.params[0]["client_unique_identifier"] != "ServerQuery" {
 				userS := newUser(r.params[0]["client_database_id"], r.params[0]["clid"], r.params[0]["client_nickname"])
-				b.db.AddNewUser(r.params[0]["client_database_id"], userS)
+				b.db.AddRecord("users", r.params[0]["client_database_id"], userS)
 				users[userS.Clidb] = userS
 				usersByClid[userS.Clid] = userS.Clidb
 			} else {
@@ -276,7 +276,7 @@ func (b *Bot) notifyAction(r *Response) {
 			infoLog.Println(user.Nick, " kicked from channel", r.params[0]["cid"])
 		}
 
-		b.db.AddNewUser(user.Clidb, user)
+		b.db.AddRecord("users", user.Clidb, user)
 		delete(users, user.Clidb)
 		delete(usersByClid, r.params[0]["clid"])
 	case "notifychanneldescriptionchanged":
@@ -295,7 +295,7 @@ func (b *Bot) notifyAction(r *Response) {
 		return
 	case "notifychannelmoved":
 		eventLog.Println("User", r.params[0]["invokername"], "moved channel ", r.params[0]["cid"], "to ", r.params[0]["cpid"])
-		room, e := b.db.GetRoom([]byte(r.params[0]["cid"]))
+		room, e := b.db.GetRecord("rooms", r.params[0]["cid"])
 		if e != nil {
 			errLog.Println("Database error:", e)
 		}
@@ -303,7 +303,7 @@ func (b *Bot) notifyAction(r *Response) {
 			channel := &Channel{}
 			channel.unmarshalJSON(room)
 			channel.Spacer = r.params[0]["cpid"]
-			err := b.db.AddRoom([]byte(channel.Cid), channel)
+			err := b.db.AddRecord("rooms", channel.Cid, channel)
 			if err != nil {
 				errLog.Println("Database error:", e)
 			}
@@ -318,13 +318,13 @@ func (b *Bot) notifyAction(r *Response) {
 			InvokerUID: r.params[0]["invokeruid"],
 			DeleteDate: time.Now(),
 		}
-		b.db.AddDeletedRoom([]byte(delChannel.Cid), delChannel)
-		room, err := b.db.GetRoom([]byte(delChannel.Cid))
+		b.db.AddRecord("deletedRooms", delChannel.Cid, delChannel)
+		room, err := b.db.GetRecord("rooms", delChannel.Cid)
 		if err != nil || len(room) == 0 {
 			errLog.Println("No such room in databse cannot delete it from it")
 			return
 		}
-		b.db.DeleteRoom(delChannel.Cid)
+		b.db.DeleteRecord("rooms", delChannel.Cid)
 	default:
 		warnLog.Println("Unusual action: ", r.action)
 		return
@@ -352,7 +352,7 @@ func (b *Bot) actionMove(r *Response) {
 
 func (b *Bot) roomFromNotify(r *Response) {
 	channel := &Channel{}
-	encodedRoom, err := b.db.GetRoom([]byte(r.params[0]["cid"]))
+	encodedRoom, err := b.db.GetRecord("rooms", r.params[0]["cid"])
 	if err != nil {
 		errLog.Println("Database error: ", err)
 	}
@@ -382,8 +382,8 @@ func (b *Bot) roomFromNotify(r *Response) {
 		channel.Token = token
 		channel.Childs = []string{}
 
-		b.db.AddRoom([]byte(channel.Cid), channel)
-		b.db.AddToken(token, tok)
+		b.db.AddRecord("rooms", channel.Cid, channel)
+		b.db.AddRecordSubBucket("rooms", "tokens", token, tok)
 		go b.exec(sendMessage("1", r.params[0]["invokerid"], "Token dla utworzonego pokoju to: [b][color=red]"+tok.Token+"[/color][/b]"))
 		debugLog.Println(clientDB)
 		go b.exec(sendMessage("1", owner.params[0]["clid"], "Token dla Twojego kanału by odzyskać channel Admina to [b][color=red] "+tok.Token+" [/color][/b]możesz też zmienić token komendą !newToken na kanale Sprawa dla Admina"))
@@ -394,7 +394,7 @@ func (b *Bot) roomFromNotify(r *Response) {
 		errLog.Println("Channel decoding error:", err)
 	}
 	channel.Childs = append(channel.Childs, r.params[0]["cid"])
-	b.db.AddRoom([]byte(channel.Cid), channel)
+	b.db.AddRecord("rooms", channel.Cid, channel)
 }
 
 func (b *Bot) actionMsg(r *Response, u *User) {
@@ -490,7 +490,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 				}
 				token := randString(7)
 				v := &Token{Token: token, Cid: cid[0], LastChange: time.Now(), EditedBy: b.ID + " - room Created"}
-				b.db.AddToken(token, v)
+				b.db.AddRecordSubBucket("rooms", "tokens", token, v)
 				var admins []string
 				admins = append(admins, dbID)
 				channel := &Channel{
@@ -504,7 +504,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 					Childs:     cid[1:],
 					Admins:     admins,
 				}
-				b.db.AddRoom([]byte(cid[0]), channel)
+				b.db.AddRecord("rooms", cid[0], channel)
 				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Pokój o nazwie "+channel.Name+" z tokenem  [b][color=red]"+v.Token+" [/color][/b]został sukcesywnie utworzony!"))
 				if cinfo.params[0]["clid"] != "" {
 					go b.exec(sendMessage("1", cinfo.params[0]["clid"], "Token dla Twojego kanału to [b][color=red]"+v.Token+" [/color][/b]służy on do odzysania channel Admina  możesz go zmienić komendą !newToken na kanale Sprawa dla Admina"))
@@ -547,7 +547,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		name := strings.SplitN(r.params[0]["msg"], " ", 2)
 		if len(name) == 2 {
 			go addAdmin(name[1], b, false)
-			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Dodano użytkownika"+name[1]+"do listy Adminów"))
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Dodano użytkownika "+name[1]+" do listy Adminów"))
 		}
 
 		return
@@ -560,7 +560,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		name := strings.SplitN(r.params[0]["msg"], " ", 2)
 		if len(name) == 2 {
 			go addAdmin(name[1], b, true)
-			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Dodano użytkownika"+name[1]+"do listy Adminów"))
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Dodano użytkownika "+name[1]+" do listy Adminów"))
 		}
 		return
 	case strings.Index(r.params[0]["msg"], "!check") == 0:
@@ -569,7 +569,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 	case strings.Index(r.params[0]["msg"], "!token") == 0:
 		token := strings.SplitN(r.params[0]["msg"], " ", 2)
 		if len(token) == 2 {
-			t, e := b.db.GetToken(token[1])
+			t, e := b.db.GetRecordSubBucket("rooms", "tokens", token[1])
 			if e != nil {
 				errLog.Println("Database error: ", e)
 				return
@@ -599,7 +599,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Nowy token jest za krótki musi mieć minimum 5 znaków"))
 				return
 			}
-			t, e := b.db.GetToken(token[1])
+			t, e := b.db.GetRecordSubBucket("rooms", "tokens", token[1])
 			if e != nil {
 				errLog.Println("Database error: ", e)
 				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Błąd bazy danych, proszę skontaktować się z Administatorem"))
@@ -616,11 +616,11 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 				errLog.Println("unmarshal error: ", e)
 				return
 			}
-			b.db.DeleteToken(token[1])
+			b.db.DeleteRecordSubBucket("rooms", "tokens", token[1])
 			tok.Token = token[2]
 			tok.EditedBy = u.Nick
 			tok.LastChange = time.Now()
-			b.db.AddToken(tok.Token, tok)
+			b.db.AddRecordSubBucket("rooms", "tokens", tok.Token, tok)
 			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Twój nowy token został poprawnie ustawiony na"+token[2]))
 			infoLog.Println("User", u.Nick, "changed token", token[1], "to new token", token[2])
 		}

@@ -67,6 +67,7 @@ func main() {
 	if ok {
 		bot.execAndIgnore(cmdsMain, false)
 		err := bot.loadUsers()
+		bot.getChannelList()
 		if err != nil {
 			log.Fatalln(err)
 		}

@@ -43,6 +43,13 @@ type Spam struct {
 	LastTokenAttempt time.Time
 }
 
+type Kick struct {
+	//https://play.golang.org/p/oI6uhP0-6F
+}
+
+type Bans struct {
+}
+
 var users = make(map[string]*User)
 var usersByClid = make(map[string]string)
 
@@ -81,22 +88,36 @@ func newUser(dbID string, clid string, nick string) *User {
 
 func (b *Bot) loadUsers() error {
 	lists, err := b.exec(clientList())
-	var added int
+	var added, update int
 	if err != nil {
 		return err
 	}
 
 	for _, userTS := range lists.params {
+		updateUser := new(User)
 		if userTS["client_database_id"] != "1" {
-			added++
-			user := newUser(userTS["client_database_id"], userTS["clid"], userTS["client_nickname"])
-			users[userTS["client_database_id"]] = user
+			record, e := b.db.GetRecord("users", userTS["client_database_id"])
+			if e != nil {
+				errLog.Println("Database error: ", e)
+			}
+			if len(record) == 0 {
+				added++
+				user := newUser(userTS["client_database_id"], userTS["clid"], userTS["client_nickname"])
+				users[userTS["client_database_id"]] = user
+				usersByClid[userTS["clid"]] = userTS["client_database_id"]
+				b.db.AddRecord("users", user.Clidb, user)
+				continue
+			}
+			update++
+			updateUser.unmarshalJSON(record)
+			updateUser.Clid = userTS["clid"]
+			users[userTS["client_database_id"]] = updateUser
 			usersByClid[userTS["clid"]] = userTS["client_database_id"]
-			b.db.AddNewUser(user.Clidb, user)
+
 		}
 	}
 
-	debugLog.Println("Added", added, "users on startup")
+	debugLog.Println("Added", added, " and updated", update, "users on startup")
 	return nil
 }
 
@@ -115,7 +136,7 @@ func (u *User) isMoveExceeded(b *Bot) bool {
 		}
 		u.Moves.Number = 0
 		u.Moves.Warnings++
-		b.db.AddNewUser(u.Clidb, u)
+		b.db.AddRecord("users", u.Clidb, u)
 		return true
 	}
 	u.incrementMoves()
@@ -135,7 +156,7 @@ func addAdmin(usr string, bot *Bot, headAdmin bool) {
 	user, ok := users[userDB]
 	if ok {
 		user.IsAdmin = true
-		bot.db.AddNewUser(user.Clidb, user)
+		bot.db.AddRecord("users", user.Clidb, user)
 		if headAdmin {
 			user.Perm = 9999
 			infoLog.Println("user", usr, "was set as an HeadAdmin")
@@ -178,13 +199,19 @@ type Token struct {
 //getChannelList , allways to copy all existing rooms into channel struct
 func (b *Bot) getChannelList() {
 	var rooms int
+	var skipped int
+	err := b.db.CreateBuckets("rooms")
+	if err != nil {
+		debugLog.Println(err)
+	}
 	start := time.Now()
 	defer func() {
-		infoLog.Println("Loaded ", rooms, "rooms in ", time.Since(start))
+		infoLog.Println("Loaded ", rooms, " and skipped ", skipped, "rooms in ", time.Since(start))
 	}()
 	infoLog.Println("Loading rooms")
 
 	channel := &Channel{}
+	token := &Token{}
 	cl, err := b.exec(channelList())
 	if err != nil {
 		errLog.Println(err)
@@ -192,15 +219,21 @@ func (b *Bot) getChannelList() {
 	}
 	spacers := []string{"595", "639"}
 	for _, vMain := range cl.params {
-		rooms++
 		for _, spacer := range spacers {
 
 			if vMain["pid"] == spacer {
+				rooms++
 				var admins []string
 				channel.Spacer = spacer
 				channel.Cid = vMain["cid"]
 				channel.Name = vMain["channel_name"]
 				channel.CreateDate = time.Now()
+				tokens := randString(7)
+				channel.Token = tokens
+				token.Cid = vMain["cid"]
+				token.Token = tokens
+				token.LastChange = time.Now()
+				token.EditedBy = b.ID
 				adminList, err := b.exec(getChannelAdmin(vMain["cid"]))
 				if err != nil {
 					admins = []string{}
@@ -223,7 +256,17 @@ func (b *Bot) getChannelList() {
 				if err != nil {
 					log.Println(err)
 				}
-				b.db.AddRoom([]byte(channel.Cid), encode)
+				r, e := b.db.GetRecord("rooms", channel.Cid)
+				if e != nil {
+					continue
+				}
+				if len(r) == 0 {
+					b.db.AddRecord("rooms", channel.Cid, encode)
+					b.db.AddRecordSubBucket("rooms", "tokens", token.Token, token)
+
+				} else {
+					skipped++
+				}
 
 			}
 
@@ -303,15 +346,15 @@ func (b *Bot) checkIfRoomOutDate() {
 				delCh.Cid = r.params[i]["cid"]
 				delCh.DeletedBy = "Bot: " + bot.ID
 				delCh.DeleteDate = time.Now()
-				room, err := bot.db.GetRoom([]byte(delCh.Cid))
+				room, err := bot.db.GetRecord("rooms", delCh.Cid)
 				if err != nil {
 					errLog.Println("Database error: ", err)
 					return
 				}
 				if len(room) != 0 {
-					bot.db.DeleteRoom(delCh.Cid)
+					bot.db.DeleteRecord("rooms", delCh.Cid)
 				}
-				bot.db.AddDeletedRoom([]byte(delCh.Cid), delCh)
+				bot.db.AddRecord("deletedRooms", delCh.Cid, delCh)
 				infoLog.Println("Room ", r.params[i]["channel_name"], "deleted by ", bot.ID)
 			}
 		}

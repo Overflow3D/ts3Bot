@@ -14,7 +14,7 @@ func (a unix) Less(i, j int) bool { return a[i] < a[j] }
 
 func (u *User) newRoomTrackerRecord(room string) {
 	trackMap := u.Moves.RoomTracker
-	if len(trackMap) == 5 {
+	if len(trackMap) == 10 {
 		var sortMe unix
 		for k := range trackMap {
 			sortMe = append(sortMe, k)

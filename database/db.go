@@ -16,6 +16,7 @@ type DB struct {
 //Datastore , db interface
 type Datastore interface {
 	CreateBuckets(bucket string) error
+	CreateSubBuckets(mBucket, sBucket string) error
 	AddRecord(bucket, key string, v interface{}) error
 	GetRecord(bucket, key string) ([]byte, error)
 	DeleteRecord(bucket, key string) error
@@ -43,6 +44,22 @@ func (db *DB) CreateBuckets(bucket string) error {
 		if err != nil {
 			return err
 		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+//CreateSubBuckets , creates sub bucket of bucket
+func (db *DB) CreateSubBuckets(mBucket, sBucket string) error {
+	err := db.conn.Update(func(tx *bolt.Tx) error {
+		b, err := tx.CreateBucketIfNotExists([]byte(mBucket))
+		if err != nil {
+			return err
+		}
+		b.CreateBucketIfNotExists([]byte(sBucket))
 		return nil
 	})
 	if err != nil {
@@ -102,7 +119,7 @@ func (db *DB) GetRecord(bucket, key string) ([]byte, error) {
 }
 
 //DeleteRecord , deletes key from database
-func (db *DB) DeleteRecord(key, bucket string) error {
+func (db *DB) DeleteRecord(bucket, key string) error {
 	err := db.conn.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket([]byte(bucket))
 		b.Delete([]byte(key))

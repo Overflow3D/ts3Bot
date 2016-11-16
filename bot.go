@@ -243,6 +243,12 @@ func (b *Bot) notifyAction(r *Response) {
 		}
 
 	case "notifyclientleftview":
+		if r.params[0]["reasonmsg"] == "" {
+			go b.exec(kickClient(r.params[0]["invokerid"], "Wypełniaj powód kick/ban"))
+		}
+		if r.params[0]["invokeruid"] == "serveradmin" {
+			return
+		}
 		if r.params[0]["reasonmsg"] == "deselected virtualserver" {
 			infoLog.Println("Sever query bot event deselected virtualserver")
 			return
@@ -265,11 +271,14 @@ func (b *Bot) notifyAction(r *Response) {
 		if r.params[0]["reasonid"] == "5" {
 			infoLog.Println(user.Nick, "kicked from server by", r.params[0]["invokername"])
 			user.BasicInfo.Kick++
+			b.addKickBan("kicks", user.Clidb, r.params[0]["reasonmsg"], r.params[0]["invokername"])
+
 		}
 
 		if r.params[0]["reasonid"] == "6" {
 			infoLog.Println(user.Nick, "banned from server by", r.params[0]["invokername"])
 			user.BasicInfo.Ban++
+			b.addKickBan("bans", user.Clidb, r.params[0]["reasonmsg"], r.params[0]["invokername"])
 		}
 
 		if r.params[0]["reasonid"] == "4" {
@@ -324,7 +333,10 @@ func (b *Bot) notifyAction(r *Response) {
 			errLog.Println("No such room in databse cannot delete it from it")
 			return
 		}
-		b.db.DeleteRecord("rooms", delChannel.Cid)
+		err = b.db.DeleteRecord("rooms", delChannel.Cid)
+		if err != nil {
+			errLog.Println(err)
+		}
 	default:
 		warnLog.Println("Unusual action: ", r.action)
 		return
@@ -351,6 +363,7 @@ func (b *Bot) actionMove(r *Response) {
 }
 
 func (b *Bot) roomFromNotify(r *Response) {
+	debugLog.Println(r.params)
 	channel := &Channel{}
 	encodedRoom, err := b.db.GetRecord("rooms", r.params[0]["cid"])
 	if err != nil {
@@ -363,6 +376,7 @@ func (b *Bot) roomFromNotify(r *Response) {
 			b.exec(sendMessage("1", r.params[0]["invokerid"], "Wprowadziłeś niepoprawną nazwę właściwiela kanału wyśli użytkownikowi w prywatnej wiadomości token, który otrzymałeś pod spodem. Błąd telnet: "+er.Error()))
 
 		}
+		debugLog.Println(r.params)
 		clientDB := getDBFromClid(owner.params[0]["clid"])
 		if clientDB != "" {
 			b.exec(setChannelAdmin(clientDB, r.params[0]["cid"]))
@@ -382,10 +396,12 @@ func (b *Bot) roomFromNotify(r *Response) {
 		channel.Token = token
 		channel.Childs = []string{}
 
-		b.db.AddRecord("rooms", channel.Cid, channel)
+		err := b.db.AddRecord("rooms", channel.Cid, channel)
+		if err != nil {
+			errLog.Println(err)
+		}
 		b.db.AddRecordSubBucket("rooms", "tokens", token, tok)
 		go b.exec(sendMessage("1", r.params[0]["invokerid"], "Token dla utworzonego pokoju to: [b][color=red]"+tok.Token+"[/color][/b]"))
-		debugLog.Println(clientDB)
 		go b.exec(sendMessage("1", owner.params[0]["clid"], "Token dla Twojego kanału by odzyskać channel Admina to [b][color=red] "+tok.Token+" [/color][/b]możesz też zmienić token komendą !newToken na kanale Sprawa dla Admina"))
 		return
 	}
@@ -399,6 +415,16 @@ func (b *Bot) roomFromNotify(r *Response) {
 
 func (b *Bot) actionMsg(r *Response, u *User) {
 	switch {
+	case strings.Index(r.params[0]["msg"], "!kicks") == 0:
+		kick := strings.SplitN(r.params[0]["msg"], " ", 3)
+		if len(kick) == 3 {
+			o, e := b.getUserKickBanHistory("kicks", kick[1], kick[2])
+			if e != nil {
+				errLog.Println(e)
+			}
+			debugLog.Println(o)
+		}
+		return
 	case strings.Index(r.params[0]["msg"], "!help") == 0:
 		help := strings.SplitN(r.params[0]["msg"], " ", 2)
 		if len(help) == 1 {

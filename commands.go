@@ -225,6 +225,17 @@ func sendMessage(targetMode string, target string, msg string) *Command {
 	}
 }
 
+func sendOffline(cluid, subject, msg string) *Command {
+	return &Command{
+		Name: "messageadd",
+		params: map[string]string{
+			"cluid":   cluid,
+			"subject": subject,
+			"message": msg,
+		},
+	}
+}
+
 func clientFind(user string) *Command {
 	return &Command{
 		Name: "clientfind",

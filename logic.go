@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"log"
 	"strconv"
 	"time"
@@ -43,11 +45,10 @@ type Spam struct {
 	LastTokenAttempt time.Time
 }
 
-type Kick struct {
-	//https://play.golang.org/p/oI6uhP0-6F
-}
-
-type Bans struct {
+//KickAndBan , struct with kicks and bans of user
+type KickAndBan struct {
+	Invoker string
+	Reason  string
 }
 
 var users = make(map[string]*User)
@@ -88,6 +89,9 @@ func newUser(dbID string, clid string, nick string) *User {
 
 func (b *Bot) loadUsers() error {
 	lists, err := b.exec(clientList())
+	b.db.CreateBuckets("users")
+	b.db.CreateSubBuckets("users", "kicks")
+	b.db.CreateSubBuckets("users", "bans")
 	var added, update int
 	if err != nil {
 		return err
@@ -201,6 +205,8 @@ func (b *Bot) getChannelList() {
 	var rooms int
 	var skipped int
 	err := b.db.CreateBuckets("rooms")
+	b.db.CreateSubBuckets("rooms", "tokens")
+	b.db.CreateBuckets("deletedRooms")
 	if err != nil {
 		debugLog.Println(err)
 	}
@@ -210,8 +216,6 @@ func (b *Bot) getChannelList() {
 	}()
 	infoLog.Println("Loading rooms")
 
-	channel := &Channel{}
-	token := &Token{}
 	cl, err := b.exec(channelList())
 	if err != nil {
 		errLog.Println(err)
@@ -224,25 +228,16 @@ func (b *Bot) getChannelList() {
 			if vMain["pid"] == spacer {
 				rooms++
 				var admins []string
-				channel.Spacer = spacer
-				channel.Cid = vMain["cid"]
-				channel.Name = vMain["channel_name"]
-				channel.CreateDate = time.Now()
-				tokens := randString(7)
-				channel.Token = tokens
-				token.Cid = vMain["cid"]
-				token.Token = tokens
-				token.LastChange = time.Now()
-				token.EditedBy = b.ID
 				adminList, err := b.exec(getChannelAdmin(vMain["cid"]))
 				if err != nil {
-					admins = []string{}
 				} else {
 					//Return clidb
 					for _, admin := range adminList.params {
-						admins = append(admins, admin["clidb"])
+						admins = append(admins, admin["cldbid"])
 					}
+
 				}
+
 				var child []string
 
 				for _, vSub := range cl.params {
@@ -251,13 +246,32 @@ func (b *Bot) getChannelList() {
 					}
 				}
 
+				tokens := randString(7)
+				channel := &Channel{
+					Cid:        vMain["cid"],
+					Name:       vMain["channel_name"],
+					Spacer:     spacer,
+					CreateDate: time.Now(),
+					Token:      tokens,
+					CreatedBy:  b.ID,
+					Admins:     admins,
+					Childs:     child,
+				}
+				token := &Token{
+					Token:      tokens,
+					LastChange: time.Now(),
+				}
 				channel.Childs = child
+				if len(channel.Admins) != 0 {
+					debugLog.Println(admins[0])
+				}
 				encode, err := json.Marshal(channel)
 				if err != nil {
 					log.Println(err)
 				}
 				r, e := b.db.GetRecord("rooms", channel.Cid)
 				if e != nil {
+					errLog.Println(e)
 					continue
 				}
 				if len(r) == 0 {
@@ -274,6 +288,18 @@ func (b *Bot) getChannelList() {
 
 	}
 
+}
+
+func informOldUsers(users map[string]string) {
+	bot := &Bot{}
+	bot.newBot("teamspot.eu:10011", false)
+	cmds := []*Command{
+		useServer(cfg.ServerID),
+		logIn(cfg.Login, cfg.Password),
+		nickname("Reminder"),
+		notifyRegister("channel", "0"),
+	}
+	bot.execAndIgnore(cmds, true)
 }
 
 func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) ([]string, error) {
@@ -458,6 +484,67 @@ func (u *User) checkTokeAttempts(valid []byte) (string, bool) {
 	}
 
 	return "Powinieneś odzyskać dostęp Channel Admina na swoim kanale, w razie problemów skontaktuj się z Administratorem.", true
+}
+
+func (b *Bot) addKickBan(bucket, clidb, reason, invoker string) {
+	kicks, err := b.db.GetRecordSubBucket("users", bucket, clidb)
+	kickBan := &KickAndBan{Invoker: invoker, Reason: reason}
+	if err != nil {
+		return
+	}
+	m := make(map[string][]*KickAndBan)
+	time := time.Now()
+	s := time.Format("02-01-2006")
+	if len(kicks) == 0 {
+		var kac []*KickAndBan
+		kac = append(kac, kickBan)
+		m[s] = kac
+		b.db.AddRecordSubBucket("users", bucket, clidb, m)
+		return
+	}
+
+	err = json.Unmarshal(kicks, &m)
+	if err != nil {
+		return
+	}
+	today, ok := m[s]
+	if !ok {
+		var kac []*KickAndBan
+		kac = append(kac, kickBan)
+		m[s] = kac
+		b.db.AddRecordSubBucket("users", bucket, clidb, m)
+		return
+	}
+
+	today = append(today, kickBan)
+	m[s] = today
+	b.db.AddRecordSubBucket("users", bucket, clidb, m)
+	return
+}
+
+func (b *Bot) getUserKickBanHistory(bucket, clidb, date string) (string, error) {
+	bans, err := b.db.GetRecordSubBucket("users", bucket, clidb)
+	if err != nil {
+		debugLog.Println(err)
+		return "", err
+	}
+	if len(bans) == 0 {
+		return "", errors.New("Nie kicków/banów dla danej osoby")
+	}
+	userKickBan := make(map[string][]*KickAndBan)
+	err = json.Unmarshal(bans, &userKickBan)
+	if err != nil {
+		return "", err
+	}
+	var buffer bytes.Buffer
+	KickBan, ok := userKickBan[date]
+	if !ok {
+		return "", errors.New("Nie ma kicków/banów dla danego dnia")
+	}
+	for _, v := range KickBan {
+		buffer.WriteString(" Od: " + v.Invoker + " powód " + v.Reason + " | ")
+	}
+	return buffer.String(), nil
 }
 
 func (u *User) unmarshalJSON(data []byte) error {

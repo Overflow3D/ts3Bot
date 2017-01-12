@@ -11,7 +11,7 @@ import (
 
 //Config , TeamSpeak 3 bot start up
 type Config struct {
-	Login     string   `jsong:"Login"`
+	Login     string   `json:"Login"`
 	Password  string   `json:"Password"`
 	ServerID  string   `json:"ServerID"`
 	HeadAdmin string   `json:"HeadAdminCliDB"`
@@ -19,11 +19,20 @@ type Config struct {
 	Spacers   []string `json:"Spacers"`
 }
 
+//Messages , Load all custome messages
+type Messages struct {
+	RuleOne  string `json:"RuleOne"`
+	RuleTwo  string `json:"RuleTwo"`
+	Commands string `json:"Commands"`
+	Strefy   string `json:"Strefy"`
+}
+
 var (
-	wg       sync.WaitGroup
-	cmdsMain []*Command
-	cmdsSub  []*Command
-	cfg      *Config
+	wg         sync.WaitGroup
+	cmdsMain   []*Command
+	cmdsSub    []*Command
+	cfg        *Config
+	customeMsg *Messages
 )
 
 func main() {
@@ -51,7 +60,7 @@ func main() {
 		notifyRegister("textchannel", ""),
 		notifyRegister("textprivate", ""),
 	}
-
+	loadMessages()
 	b := &Bot{}
 	db, err := _db.NewConn()
 	defer db.Close()
@@ -108,6 +117,22 @@ func loadConfig() (*Config, error) {
 	return cfg, nil
 }
 
+func loadMessages() {
+	msg := &Messages{}
+	m, err := ioutil.ReadFile("./message.json")
+	if err != nil {
+		errLog.Println("Message loading", err)
+		return
+	}
+	err = msg.unMarshalJSON(m)
+	if err != nil {
+		errLog.Println("Message loading", err)
+		return
+	}
+	customeMsg = msg
+	infoLog.Println("Custome message loaded")
+}
+
 //Unmarshaling json into Cofig struct
 func (c *Config) unMarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &c)
@@ -115,4 +140,8 @@ func (c *Config) unMarshalJSON(data []byte) error {
 
 func (c *Config) marshalJSON() ([]byte, error) {
 	return json.MarshalIndent(c, "", "  ")
+}
+
+func (m *Messages) unMarshalJSON(data []byte) error {
+	return json.Unmarshal(data, &m)
 }

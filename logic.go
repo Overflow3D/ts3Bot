@@ -32,6 +32,7 @@ type Moves struct {
 
 //BasicInfo , user basic info
 type BasicInfo struct {
+	ReadRules    bool
 	CreatedAT    time.Time
 	LastSeen     time.Time
 	IsRegistered bool
@@ -68,6 +69,7 @@ func newUser(dbID string, clid string, nick string) *User {
 			MoveStatus:  0,
 		},
 		BasicInfo: &BasicInfo{
+			ReadRules:    false,
 			CreatedAT:    time.Now(),
 			LastSeen:     time.Now(),
 			IsRegistered: false,
@@ -193,6 +195,7 @@ type DelChannel struct {
 	DeleteDate time.Time
 }
 
+//Token , room tokens for id
 type Token struct {
 	Token      string
 	Cid        string
@@ -263,7 +266,7 @@ func (b *Bot) getChannelList() {
 				}
 				channel.Childs = child
 				if len(channel.Admins) != 0 {
-					debugLog.Println(admins[0])
+					//Shows channel admin for rooms
 				}
 				encode, err := json.Marshal(channel)
 				if err != nil {
@@ -277,7 +280,6 @@ func (b *Bot) getChannelList() {
 				if len(r) == 0 {
 					b.db.AddRecord("rooms", channel.Cid, encode)
 					b.db.AddRecordSubBucket("rooms", "tokens", token.Token, token)
-
 				} else {
 					skipped++
 				}
@@ -379,6 +381,7 @@ func (b *Bot) checkIfRoomOutDate() {
 				}
 				if len(room) != 0 {
 					bot.db.DeleteRecord("rooms", delCh.Cid)
+					debugLog.Println(room)
 				}
 				bot.db.AddRecord("deletedRooms", delCh.Cid, delCh)
 				infoLog.Println("Room ", r.params[i]["channel_name"], "deleted by ", bot.ID)
@@ -386,6 +389,7 @@ func (b *Bot) checkIfRoomOutDate() {
 		}
 
 	}
+	infoLog.Println("Room cleaning done.")
 	bot.conn.Close()
 }
 
@@ -409,6 +413,7 @@ func (b *Bot) fetchChild(pid string, cid string, rooms []map[string]string) ([]s
 		return []string{"Channel still below 7 days"}, false
 	}
 	userRoom = append(userRoom, r.params[0]["seconds_empty"])
+	log.Println(r.params[0]["channel_name"])
 	for _, v := range spacer {
 		if pid == v {
 			for _, room := range rooms {
@@ -420,7 +425,8 @@ func (b *Bot) fetchChild(pid string, cid string, rooms []map[string]string) ([]s
 					emptySinceChild, err := strconv.Atoi(cinfo.params[0]["seconds_empty"])
 					if err != nil {
 						continue
-					} else if emptySinceChild > 1209600 {
+					}
+					if emptySinceChild > 1209600 {
 						userRoom = append(userRoom, cinfo.params[0]["seconds_empty"])
 					}
 
@@ -428,6 +434,7 @@ func (b *Bot) fetchChild(pid string, cid string, rooms []map[string]string) ([]s
 			}
 		}
 	}
+	log.Println(userRoom)
 	return userRoom, true
 }
 

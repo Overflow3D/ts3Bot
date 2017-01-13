@@ -263,3 +263,31 @@ func deleteChannel(cid string) *Command {
 		},
 	}
 }
+
+func serverGroupIdsByCliDB(id string) *Command {
+	return &Command{
+		Name: "servergroupsbyclientid",
+		params: map[string]string{
+			"cldbid": id,
+		},
+	}
+}
+
+func channelFind(name string) *Command {
+	return &Command{
+		Name: "channelfind",
+		params: map[string]string{
+			"pattern": name,
+		},
+	}
+}
+
+func serverGroupAddClient(groupID string, cldbid string) *Command {
+	return &Command{
+		Name: "servergroupaddclient",
+		params: map[string]string{
+			"sgid":   groupID,
+			"cldbid": cldbid,
+		},
+	}
+}

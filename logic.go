@@ -292,18 +292,6 @@ func (b *Bot) getChannelList() {
 
 }
 
-func informOldUsers(users map[string]string) {
-	bot := &Bot{}
-	bot.newBot("teamspot.eu:10011", false)
-	cmds := []*Command{
-		useServer(cfg.ServerID),
-		logIn(cfg.Login, cfg.Password),
-		nickname("Reminder"),
-		notifyRegister("channel", "0"),
-	}
-	bot.execAndIgnore(cmds, true)
-}
-
 func (b *Bot) newRoom(name string, pid string, isMain bool, subRooms int) ([]string, error) {
 	var cids []string
 	if !isMain {
@@ -552,6 +540,18 @@ func (b *Bot) getUserKickBanHistory(bucket, clidb, date string) (string, error) 
 		buffer.WriteString(" Od: " + v.Invoker + " powód " + v.Reason + " | ")
 	}
 	return buffer.String(), nil
+}
+
+func registerUserAsPerm(b *Bot) {
+	for _, u := range users {
+		if time.Since(u.BasicInfo.CreatedAT).Hours() > 280 && !u.BasicInfo.IsRegistered {
+			b.exec(serverGroupAddClient("63", u.Clidb))
+			u.BasicInfo.IsRegistered = true
+			b.db.AddRecord("users", u.Clidb, u)
+			delete(users, u.Clidb)
+			users[u.Clidb] = u
+		}
+	}
 }
 
 func (u *User) unmarshalJSON(data []byte) error {

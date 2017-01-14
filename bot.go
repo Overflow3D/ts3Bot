@@ -220,7 +220,8 @@ func (b *Bot) notifyAction(r *Response) {
 			eventLog.Println("Admin przeniósł użytkownika o id", r.params[0]["clid"], "na kanał", r.params[0]["ctid"])
 			return
 		}
-		go b.actionMove(r)
+		b.jumpProtection(r)
+		// go b.actionMove(r)
 	case "notifychanneledited":
 		//Add edition note in channel description
 		//For more info who edited the channel
@@ -254,11 +255,14 @@ func (b *Bot) notifyAction(r *Response) {
 					b.exec(sendMessage("1", retriveUser.Clid, msg))
 				}()
 			}
-
 			if retriveUser.BasicInfo.IsPunished == true {
-				go b.exec(clientMove(retriveUser.Clid, "1084"))
+				go b.exec(clientMove(retriveUser.Clid, cfg.PunishRoom))
 				go PunishRoom(b, retriveUser)
-				eventLog.Println(retriveUser.Nick, "nie odbył pełnej kary na karnym języku, zostało mu jeszcze", retriveUser.BasicInfo.Punish.OriginTime-retriveUser.BasicInfo.Punish.CurrentTime, "sekund")
+				retriveUser.BasicInfo.Punish.OriginTime = (retriveUser.BasicInfo.Punish.OriginTime - retriveUser.BasicInfo.Punish.CurrentTime) + (10 * float64(retriveUser.Moves.Warnings))
+				timeLeft := retriveUser.BasicInfo.Punish.OriginTime - retriveUser.BasicInfo.Punish.CurrentTime
+				strLeft := strconv.FormatFloat(timeLeft, 'f', 1, 64)
+				go b.exec(clientPoke(retriveUser.Clid, "[color=red][b]Zostało Ci jeszcze "+strLeft+" sekund na karnym jeżyku, powodzenia :)[b][/color]"))
+				eventLog.Println(retriveUser.Nick, "nie odbył pełnej kary na karnym jeżyku, zostało mu jeszcze", strLeft, "sekund")
 			}
 
 		} else {
@@ -384,24 +388,6 @@ func (b *Bot) notifyAction(r *Response) {
 
 }
 
-func (b *Bot) actionMove(r *Response) {
-	cinfo, ok := usersByClid[r.params[0]["clid"]]
-	if !ok {
-		return
-	}
-	user, ok := users[cinfo]
-	if ok {
-		user.Moves.MoveStatus++
-		if user.Moves.MoveStatus == 2 {
-			user.newRoomTrackerRecord(r.params[0]["ctid"])
-			user.Moves.MoveStatus = 0
-			if !user.IsAdmin {
-				user.isMoveExceeded(b)
-			}
-		}
-	}
-}
-
 func (b *Bot) roomFromNotify(r *Response) {
 	debugLog.Println(r.params)
 	channel := &Channel{}
@@ -469,11 +455,15 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 			if e != nil {
 				errLog.Println(e)
 			}
-			debugLog.Println(o)
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], o))
 		}
 		return
 	case strings.Index(r.params[0]["msg"], "!kara") == 0:
 		kara := strings.SplitN(r.params[0]["msg"], " ", 3)
+		if cfg.PunishRoom == "" {
+			errLog.Println("Pole punish room id jest puste!")
+			return
+		}
 		if len(kara) == 3 {
 			res, e := b.exec(clientFind(kara[1]))
 			if e != nil {
@@ -493,17 +483,30 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 			}
 			user.BasicInfo.Punish.OriginTime = f
 			go PunishRoom(b, user)
-			debugLog.Println(kara[1], f)
+			go b.exec(clientMove(res.params[0]["clid"], cfg.PunishRoom))
+			go b.exec(clientPoke(res.params[0]["clid"], "[color=red][b]Otrzymałeś "+kara[2]+" sekund kary wczasie rzeczywistym na karnym jeżyku"))
 		}
 		return
 	case strings.Index(r.params[0]["msg"], "!help") == 0:
 		help := strings.SplitN(r.params[0]["msg"], " ", 2)
-		if len(help) == 1 {
-			//Add user/admin commands depenting on who is invoking command
-			msg := customeMsg.Commands
-			go b.exec(sendMessage("1", r.params[0]["invokerid"], msg))
+		if len(help) != 1 {
 			return
 		}
+		resGroup, e := b.exec(serverGroupIdsByCliDB(u.Clidb))
+		if e != nil {
+			errLog.Println("Error while group retriving in help command", e)
+			return
+		}
+		msg := ""
+		for _, v := range resGroup.params {
+			if v["name"] == "Admin Server Query" || v["name"] == "Head Admin" {
+				msg = customeMsg.CommandsAdmin
+				break
+			}
+			msg = customeMsg.Commands
+			break
+		}
+		go b.exec(sendMessage("1", r.params[0]["invokerid"], msg))
 		return
 	case strings.Index(r.params[0]["msg"], "!strefy") == 0:
 		msg := customeMsg.Strefy

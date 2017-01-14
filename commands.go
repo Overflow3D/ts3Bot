@@ -291,3 +291,13 @@ func serverGroupAddClient(groupID string, cldbid string) *Command {
 		},
 	}
 }
+
+func clientPoke(id, msg string) *Command {
+	return &Command{
+		Name: "clientpoke",
+		params: map[string]string{
+			"clid": id,
+			"msg":  msg,
+		},
+	}
+}

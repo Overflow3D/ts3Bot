@@ -146,24 +146,6 @@ func (u *User) incrementMoves() {
 	u.Moves.Number++
 }
 
-func (u *User) isMoveExceeded(b *Bot) bool {
-	if (u.Moves.Number) > 10 && time.Since(u.Moves.SinceMove).Seconds() < 600 {
-		if u.Moves.Warnings >= 3 {
-			log.Println("Ban time")
-		}
-		_, err := b.exec(kickClient(u.Clid, "Nie skacz po kanałach!"))
-		if err != nil {
-			errLog.Println(err)
-		}
-		u.Moves.Number = 0
-		u.Moves.Warnings++
-		b.db.AddRecord("users", u.Clidb, u)
-		return true
-	}
-	u.incrementMoves()
-	return false
-}
-
 func addAdmin(usr string, bot *Bot, headAdmin bool) {
 	r, e := bot.exec(clientFind(usr))
 	if e != nil {
@@ -239,9 +221,9 @@ func (b *Bot) getChannelList() {
 		errLog.Println(err)
 		return
 	}
-	spacers := []string{"595", "639"}
+
 	for _, vMain := range cl.params {
-		for _, spacer := range spacers {
+		for _, spacer := range cfg.Spacer {
 
 			if vMain["pid"] == spacer {
 				rooms++
@@ -438,23 +420,6 @@ func (b *Bot) fetchChild(pid string, cid string, rooms []map[string]string) ([]s
 	return userRoom, true
 }
 
-// func (b *Bot) loadSpacers() []string {
-// 	var spacers []string
-// 	r, e := b.exec(channelList())
-// 	if e != nil {
-// 		errLog.Println(e)
-// 	}
-//
-// 	for k := range r.params {
-//
-// 		if r.params[k]["pid"] == "0" {
-// 			spacers = append(spacers, r.params[k]["cid"])
-// 		}
-//
-// 	}
-// 	return spacers
-// }
-
 func isNormalUserArea(pcid string) bool {
 	spacerPids := cfg.Spacer
 	for _, v := range spacerPids {
@@ -530,7 +495,12 @@ func (b *Bot) addKickBan(bucket, clidb, reason, invoker string) {
 }
 
 func (b *Bot) getUserKickBanHistory(bucket, clidb, date string) (string, error) {
-	bans, err := b.db.GetRecordSubBucket("users", bucket, clidb)
+	userInfo, e := b.exec(clientDBID(clidb, "-uid"))
+	if e != nil {
+		errLog.Println(e)
+		return "", e
+	}
+	bans, err := b.db.GetRecordSubBucket("users", bucket, userInfo.params[0]["cldbid"])
 	if err != nil {
 		debugLog.Println(err)
 		return "", err
@@ -548,8 +518,12 @@ func (b *Bot) getUserKickBanHistory(bucket, clidb, date string) (string, error) 
 	if !ok {
 		return "", errors.New("Nie ma kicków/banów dla danego dnia")
 	}
+	buffer.WriteString("\nWyniki dla podanej operacji to: ")
 	for _, v := range KickBan {
-		buffer.WriteString(" Od: " + v.Invoker + " powód " + v.Reason + " | ")
+		if v.Reason == "" {
+			v.Reason = "Brak powodu"
+		}
+		buffer.WriteString("\n [color=green][b]Od:[/b][/color] " + v.Invoker + " [color=green][b]Powód:[/b][/color] " + v.Reason)
 	}
 	return buffer.String(), nil
 }
@@ -567,7 +541,7 @@ func registerUserAsPerm(b *Bot) {
 }
 
 func PunishRoom(b *Bot, u *User) {
-	time := time.NewTicker(10 * time.Second)
+	time := time.NewTicker(2 * time.Second)
 	for {
 		select {
 		case <-time.C:
@@ -589,6 +563,7 @@ func PunishRoom(b *Bot, u *User) {
 				u.BasicInfo.IsPunished = userRealTime.BasicInfo.IsPunished
 				u.BasicInfo.Punish = &Punish{0, 0, 0}
 				b.db.AddRecord("users", u.Clidb, u)
+				go b.exec(clientMove(u.Clidb, cfg.GuestRoom))
 				return
 			}
 
@@ -603,7 +578,7 @@ func PunishRoom(b *Bot, u *User) {
 			}
 
 			if res.params[0]["client_output_muted"] != "1" {
-				u.BasicInfo.Punish.CurrentTime = u.BasicInfo.Punish.CurrentTime + 10
+				u.BasicInfo.Punish.CurrentTime = u.BasicInfo.Punish.CurrentTime + 2
 			}
 
 		}
@@ -620,4 +595,55 @@ func (c *Channel) unmarshalJSON(data []byte) error {
 
 func (t *Token) unmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &t)
+}
+
+//Przejrzeć kod dodatkow
+func (b *Bot) jumpProtection(r *Response) {
+	dbID, k := usersByClid[r.params[0]["clid"]]
+	if !k {
+		errLog.Println("Nie ma takiego użytkownika w pamięci pod clid", r.params[0]["clid"])
+		return
+	}
+	u, ok := users[dbID]
+	if !ok {
+		errLog.Println("Nie ma takiego użytkownika w pamięci")
+		return
+	}
+	if u.Moves.MoveStatus != 1 {
+		u.Moves.MoveStatus++
+		return
+	}
+
+	if u.Moves.Number == 0 {
+		u.Moves.SinceMove = time.Now()
+		u.Moves.Number++
+		return
+	}
+	u.Moves.MoveStatus = 0
+
+	sinceMove := time.Since(u.Moves.SinceMove).Seconds()
+	if sinceMove > 360 {
+		u.Moves.Number = 1
+		u.Moves.SinceMove = time.Now()
+		b.db.AddRecord("users", u.Clidb, u)
+		return
+	}
+	if sinceMove < 60 {
+		u.Moves.Number++
+		u.Moves.SinceMove = time.Now()
+		b.db.AddRecord("users", u.Clidb, u)
+	}
+	if sinceMove < 180 && u.Moves.Number >= 8 {
+		if u.BasicInfo.IsPunished == false {
+			u.BasicInfo.IsPunished = true
+			u.BasicInfo.Punish = &Punish{float64(u.Moves.Warnings + 1), 180, 0}
+			go b.exec(clientMove(u.Clid, cfg.PunishRoom))
+			go b.exec(clientPoke(u.Clid, "[color=red][b]180s kary za skakanie[/b][/color]"))
+			go PunishRoom(b, u)
+
+		}
+		u.Moves.Number = 0
+		u.Moves.Warnings++
+		b.db.AddRecord("users", u.Clidb, u)
+	}
 }

@@ -38,6 +38,15 @@ type BasicInfo struct {
 	IsRegistered bool
 	Kick         int
 	Ban          int
+	IsPunished   bool
+	Punish       *Punish
+}
+
+//Punish , punishment struct for user
+type Punish struct {
+	Multi       float64
+	OriginTime  float64
+	CurrentTime float64
 }
 
 //Spam , user spam info
@@ -75,6 +84,12 @@ func newUser(dbID string, clid string, nick string) *User {
 			IsRegistered: false,
 			Kick:         0,
 			Ban:          0,
+			IsPunished:   false,
+			Punish: &Punish{
+				Multi:       0,
+				OriginTime:  0,
+				CurrentTime: 0,
+			},
 		},
 		Spam: &Spam{
 			TokenAttempts:    0,
@@ -249,37 +264,33 @@ func (b *Bot) getChannelList() {
 					}
 				}
 
-				tokens := randString(7)
 				channel := &Channel{
 					Cid:        vMain["cid"],
 					Name:       vMain["channel_name"],
 					Spacer:     spacer,
 					CreateDate: time.Now(),
-					Token:      tokens,
+					Token:      "",
 					CreatedBy:  b.ID,
 					Admins:     admins,
 					Childs:     child,
-				}
-				token := &Token{
-					Token:      tokens,
-					LastChange: time.Now(),
 				}
 				channel.Childs = child
 				if len(channel.Admins) != 0 {
 					//Shows channel admin for rooms
 				}
-				encode, err := json.Marshal(channel)
-				if err != nil {
-					log.Println(err)
-				}
+				// encode, err := json.Marshal(channel)
+				// if err != nil {
+				// 	log.Println(err)
+				// }
+
 				r, e := b.db.GetRecord("rooms", channel.Cid)
 				if e != nil {
 					errLog.Println(e)
 					continue
 				}
+
 				if len(r) == 0 {
-					b.db.AddRecord("rooms", channel.Cid, encode)
-					b.db.AddRecordSubBucket("rooms", "tokens", token.Token, token)
+					b.db.AddRecord("rooms", channel.Cid, channel)
 				} else {
 					skipped++
 				}
@@ -318,8 +329,7 @@ func countUsers() int {
 }
 
 func isSpacer(s string) (string, bool) {
-	spacers := map[string]string{"test": "595", "V2": "26", "V3": "27", "S1": "19", "S2": "20", "S3": "21", "S4": "28"}
-	for k, v := range spacers {
+	for k, v := range cfg.Spacer {
 		if s == k {
 			return v, true
 		}
@@ -383,8 +393,10 @@ func (b *Bot) checkIfRoomOutDate() {
 
 func (b *Bot) fetchChild(pid string, cid string, rooms []map[string]string) ([]string, bool) {
 	var userRoom []string
-	spacer := cfg.Spacers
-
+	var spacer []string
+	for _, v := range cfg.Spacer {
+		spacer = append(spacer, v)
+	}
 	r, e := b.exec(channelInfo(cid))
 	if e != nil {
 		errLog.Println("Channel info error: ", e)
@@ -426,25 +438,25 @@ func (b *Bot) fetchChild(pid string, cid string, rooms []map[string]string) ([]s
 	return userRoom, true
 }
 
-func (b *Bot) loadSpacers() []string {
-	var spacers []string
-	r, e := b.exec(channelList())
-	if e != nil {
-		errLog.Println(e)
-	}
-
-	for k := range r.params {
-
-		if r.params[k]["pid"] == "0" {
-			spacers = append(spacers, r.params[k]["cid"])
-		}
-
-	}
-	return spacers
-}
+// func (b *Bot) loadSpacers() []string {
+// 	var spacers []string
+// 	r, e := b.exec(channelList())
+// 	if e != nil {
+// 		errLog.Println(e)
+// 	}
+//
+// 	for k := range r.params {
+//
+// 		if r.params[k]["pid"] == "0" {
+// 			spacers = append(spacers, r.params[k]["cid"])
+// 		}
+//
+// 	}
+// 	return spacers
+// }
 
 func isNormalUserArea(pcid string) bool {
-	spacerPids := []string{"19", "20", "21", "28", "595"}
+	spacerPids := cfg.Spacer
 	for _, v := range spacerPids {
 		if pcid == v {
 			return true
@@ -550,6 +562,50 @@ func registerUserAsPerm(b *Bot) {
 			b.db.AddRecord("users", u.Clidb, u)
 			delete(users, u.Clidb)
 			users[u.Clidb] = u
+		}
+	}
+}
+
+func PunishRoom(b *Bot, u *User) {
+	time := time.NewTicker(10 * time.Second)
+	for {
+		select {
+		case <-time.C:
+
+			res, e := b.exec(clientInfo(u.Clid))
+			if e != nil {
+				errLog.Println("error przy timerze użytkownika", u.Nick, "treść ", e)
+				if e.Error() == "Error from telnet: 512 invalid clientID" {
+					eventLog.Println("Użytkownik ", u.Nick, "opuścił teamspeak podczas odbywania kary")
+					b.db.AddRecord("users", u.Clidb, u)
+					return
+				}
+				continue
+			}
+
+			userRealTime, _ := users[u.Clidb]
+			if userRealTime.BasicInfo.IsPunished == false {
+				eventLog.Println("Kara przerwane przez administratora")
+				u.BasicInfo.IsPunished = userRealTime.BasicInfo.IsPunished
+				u.BasicInfo.Punish = &Punish{0, 0, 0}
+				b.db.AddRecord("users", u.Clidb, u)
+				return
+			}
+
+			if u.BasicInfo.Punish.OriginTime < u.BasicInfo.Punish.CurrentTime {
+				// Move user to Save room and break loop reset punish stats
+				u.BasicInfo.IsPunished = false
+				u.BasicInfo.Punish.CurrentTime = 0
+				delete(users, u.Clidb)
+				users[u.Clidb] = u
+				b.db.AddRecord("users", u.Clidb, u)
+				return
+			}
+
+			if res.params[0]["client_output_muted"] != "1" {
+				u.BasicInfo.Punish.CurrentTime = u.BasicInfo.Punish.CurrentTime + 10
+			}
+
 		}
 	}
 }

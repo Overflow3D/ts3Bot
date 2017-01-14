@@ -11,12 +11,11 @@ import (
 
 //Config , TeamSpeak 3 bot start up
 type Config struct {
-	Login     string   `json:"Login"`
-	Password  string   `json:"Password"`
-	ServerID  string   `json:"ServerID"`
-	HeadAdmin string   `json:"HeadAdminCliDB"`
-	Admins    []string `json:"Admins"`
-	Spacers   []string `json:"Spacers"`
+	Login     string            `json:"Login"`
+	Password  string            `json:"Password"`
+	ServerID  string            `json:"ServerID"`
+	HeadAdmin string            `json:"HeadAdminCliDB"`
+	Spacer    map[string]string `json:"Spacer"`
 }
 
 //Messages , Load all custome messages
@@ -43,6 +42,11 @@ func main() {
 	cfg, err = loadConfig()
 	if err != nil {
 		errLog.Println(err)
+	}
+
+	if len(cfg.Spacer) == 0 {
+		errLog.Println("Musisz skonfigurować spacery przed odpaleniem bota!")
+		return
 	}
 	//Basic commands to start off bot
 	cmdsMain = []*Command{
@@ -80,23 +84,6 @@ func main() {
 		if err != nil {
 			log.Fatalln(err)
 		}
-		if len(cfg.Spacers) == 0 {
-			debugLog.Println("Is empty")
-			s := b.loadSpacers()
-			cfg.Spacers = s
-			data, err := cfg.marshalJSON()
-			if err != nil {
-				errLog.Println(err)
-			}
-			err = ioutil.WriteFile("./config.json", data, 0644)
-			if err != nil {
-				errLog.Println(err)
-			}
-		}
-		// TODO add flas for first run
-		// First time run uncomment
-		//bot.getChannelList()
-		// bot.writeChannelsIntoMemo()
 	}
 
 	wg.Wait()

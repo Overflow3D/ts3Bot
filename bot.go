@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"strconv"
 	"strings"
 	"time"
 
@@ -214,24 +215,32 @@ func (b *Bot) notifyAction(r *Response) {
 		}
 		debugLog.Println("Some normal message")
 	case "notifyclientmoved":
+		//This if statment prevents from adding fakes moves to jump protection counter by admin move option
+		if r.params[0]["invokername"] != "" || r.params[0]["invokerid"] != "" {
+			eventLog.Println("Admin przeniósł użytkownika o id", r.params[0]["clid"], "na kanał", r.params[0]["ctid"])
+			return
+		}
 		go b.actionMove(r)
 	case "notifychanneledited":
-		debugLog.Println(r.action)
+		//Add edition note in channel description
+		//For more info who edited the channel
 	case "notifycliententerview":
-		//debugLog.Println(r.params)
 		userDB, err := b.db.GetRecord("users", r.params[0]["client_database_id"])
 		if err != nil {
 			errLog.Println(err)
 		}
+
 		if len(userDB) != 0 {
 			retriveUser := &User{}
 			retriveUser.unmarshalJSON(userDB)
 			retriveUser.Clid = r.params[0]["clid"]
 			users[retriveUser.Clidb] = retriveUser
 			usersByClid[r.params[0]["clid"]] = retriveUser.Clidb
+
 			if time.Since(retriveUser.Moves.SinceMove).Seconds() > 600 {
 				retriveUser.Moves.Number = 0
 			}
+
 			if time.Since(retriveUser.BasicInfo.CreatedAT).Seconds() > 172800 {
 				retriveUser.BasicInfo.IsRegistered = true
 			}
@@ -244,6 +253,12 @@ func (b *Bot) notifyAction(r *Response) {
 					msg = customeMsg.RuleTwo
 					b.exec(sendMessage("1", retriveUser.Clid, msg))
 				}()
+			}
+
+			if retriveUser.BasicInfo.IsPunished == true {
+				go b.exec(clientMove(retriveUser.Clid, "1084"))
+				go PunishRoom(b, retriveUser)
+				eventLog.Println(retriveUser.Nick, "nie odbył pełnej kary na karnym języku, zostało mu jeszcze", retriveUser.BasicInfo.Punish.OriginTime-retriveUser.BasicInfo.Punish.CurrentTime, "sekund")
 			}
 
 		} else {
@@ -394,8 +409,8 @@ func (b *Bot) roomFromNotify(r *Response) {
 	if err != nil {
 		errLog.Println("Database error: ", err)
 	}
-	spacers := cfg.Spacers
-	for _, s := range spacers {
+
+	for _, s := range cfg.Spacer {
 		if r.params[0]["cpid"] == s {
 			if len(encodedRoom) == 0 {
 				owner, er := b.exec(clientFind(r.params[0]["channel_name"]))
@@ -457,9 +472,34 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 			debugLog.Println(o)
 		}
 		return
+	case strings.Index(r.params[0]["msg"], "!kara") == 0:
+		kara := strings.SplitN(r.params[0]["msg"], " ", 3)
+		if len(kara) == 3 {
+			res, e := b.exec(clientFind(kara[1]))
+			if e != nil {
+				errLog.Println(e)
+			}
+			userClidb, _ := usersByClid[res.params[0]["clid"]]
+			user, _ := users[userClidb]
+			user.BasicInfo.IsPunished = true
+			f, err := strconv.ParseFloat(kara[2], 64)
+			if err != nil {
+				errLog.Println(e)
+			}
+			if f == 0 {
+				debugLog.Println("Anulowanie kary dla użytkownika", user.Nick)
+				user.BasicInfo.IsPunished = false
+				return
+			}
+			user.BasicInfo.Punish.OriginTime = f
+			go PunishRoom(b, user)
+			debugLog.Println(kara[1], f)
+		}
+		return
 	case strings.Index(r.params[0]["msg"], "!help") == 0:
 		help := strings.SplitN(r.params[0]["msg"], " ", 2)
 		if len(help) == 1 {
+			//Add user/admin commands depenting on who is invoking command
 			msg := customeMsg.Commands
 			go b.exec(sendMessage("1", r.params[0]["invokerid"], msg))
 			return
@@ -584,6 +624,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 
 		return
 
+	//Create now bot
 	case b.isMaster && strings.Index(r.params[0]["msg"], "!create") == 0:
 		if !u.IsAdmin {
 			warnLog.Println("User ", u.Nick, " is not an Admin!")
@@ -605,6 +646,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		go b.exec(sendMessage("1", r.params[0]["invokerid"], "Nowy bot został utworzony bez problemów"))
 		return
 
+	//Add admin to bot list
 	case b.isMaster && strings.Index(r.params[0]["msg"], "!admin") == 0:
 
 		if !u.IsAdmin && u.Perm < 9000 {
@@ -631,9 +673,11 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Dodano użytkownika "+name[1]+" do listy Adminów"))
 		}
 		return
+	//Manually check if room are out of date
 	case strings.Index(r.params[0]["msg"], "!check") == 0:
 		go b.checkIfRoomOutDate()
 		return
+	//Adds user to admin list if he has admin group status
 	case strings.Index(r.params[0]["msg"], "!addMe") == 0:
 		userGroups, e := b.exec(serverGroupIdsByCliDB(u.Clidb))
 		if e != nil {
@@ -654,59 +698,74 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		}
 		warnLog.Println("Nieautoryzowana próba dodania do listy adminów przez użytkownika", u.Nick)
 		return
+	//Allow old user to create token to thier own room
 	case strings.Index(r.params[0]["msg"], "!doToken") == 0:
 		chName := strings.SplitN(r.params[0]["msg"], " ", 2)
-		if len(chName) == 2 {
-			cInfo, err := b.exec(channelFind(chName[1]))
-			if err != nil {
-				errLog.Println(err)
-				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Podałeś niepoprawną nazwę pokoju"))
-				return
-			}
-			debugLog.Println(cInfo.params[0]["cid"])
-			cOwner, er := b.exec(getChannelAdmin(cInfo.params[0]["cid"]))
-			if er != nil {
-				return
-			}
-			for _, o := range cOwner.params {
-				if o["cldbid"] == u.Clidb {
 
-					chInfo, e := b.exec(channelInfo(cInfo.params[0]["cid"]))
-					if e != nil {
-						errLog.Println("error while channel retriving", e)
-						return
-					}
-					for _, s := range cfg.Spacers {
-						if chInfo.params[0]["pid"] == s {
-							eventLog.Println("Dziala")
-							room, e := b.db.GetRecord("rooms", cInfo.params[0]["cid"])
-							if e != nil {
-								return
-							}
-							if len(room) != 0 {
-								ch := &Channel{}
-								ch.unmarshalJSON(room)
-								if ch.Token == "" {
-									token := randString(7)
-									v := &Token{Token: token, Cid: cInfo.params[0]["cid"], LastChange: time.Now(), EditedBy: b.ID + " - room Created"}
-									b.db.AddRecordSubBucket("rooms", "tokens", token, v)
-									go b.exec(sendMessage("1", r.params[0]["invokerid"], "Twój token został pomyślnie utworzony [color=red][b]"+token+"[/b][/color] zapisz go sobie gdzieś"))
-								}
-							}
-							return
-						}
-					}
-					return
-				}
-			}
-
-			eventLog.Println("Nie działa")
+		if len(chName) != 2 {
+			return
 		}
 
+		cInfo, err := b.exec(channelFind(chName[1]))
+		if err != nil {
+			errLog.Println(err)
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Podałeś niepoprawną nazwę pokoju"))
+			return
+		}
+		debugLog.Println(cInfo.params[0]["cid"])
+		cOwner, er := b.exec(getChannelAdmin(cInfo.params[0]["cid"]))
+		if er != nil {
+			eventLog.Println(er)
+			return
+		}
+
+		for _, o := range cOwner.params {
+			if o["cldbid"] != u.Clidb {
+				continue
+			}
+
+			chInfo, e := b.exec(channelInfo(cInfo.params[0]["cid"]))
+			if e != nil {
+				errLog.Println("error while channel retriving", e)
+				return
+			}
+
+			for _, s := range cfg.Spacer {
+				if chInfo.params[0]["pid"] != s {
+					continue
+				}
+
+				room, e := b.db.GetRecord("rooms", cInfo.params[0]["cid"])
+				if e != nil {
+					return
+				}
+
+				if len(room) != 0 {
+					channel := &Channel{}
+					channel.unmarshalJSON(room)
+
+					if channel.Token == "" {
+						token := randString(7)
+						v := &Token{Token: token, Cid: cInfo.params[0]["cid"], LastChange: time.Now(), EditedBy: b.ID + " - room Created"}
+						channel.Token = token
+						b.db.AddRecord("rooms", channel.Cid, channel)
+						b.db.AddRecordSubBucket("rooms", "tokens", token, v)
+						go b.exec(sendMessage("1", r.params[0]["invokerid"], "Twój token został pomyślnie utworzony [color=red][b]"+token+"[/b][/color] zapisz go sobie gdzieś"))
+
+						return
+					}
+					eventLog.Println("Token dla pokoju", channel.Name, "już istnieje:", channel.Token)
+					go b.exec(sendMessage("1", r.params[0]["invokerid"], "Token dla tego pokoju już istnieje [color=red][b]"+channel.Token+"[/b][/color]"))
+				}
+				return
+			}
+		}
 		return
+	//test coomand
 	case strings.Index(r.params[0]["msg"], "!test") == 0:
 		registerUserAsPerm(b)
 		return
+	//Reconver channel admin on user channels via token
 	case strings.Index(r.params[0]["msg"], "!token") == 0:
 		token := strings.SplitN(r.params[0]["msg"], " ", 2)
 		if len(token) == 2 {

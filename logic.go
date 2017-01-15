@@ -324,7 +324,7 @@ func getDBFromClid(id string) string {
 	return dbID
 }
 
-func (b *Bot) checkIfRoomOutDate() {
+func (b *Bot) checkIfRoomOutDate(remove bool, id string) {
 	start := time.Now()
 	defer func() { debugLog.Println(time.Since(start)) }()
 	bot := &Bot{}
@@ -339,31 +339,37 @@ func (b *Bot) checkIfRoomOutDate() {
 		errLog.Println(e)
 		return
 	}
-
+	var roomsName bytes.Buffer
 	for i := range r.params {
 
 		if isNormalUserArea(r.params[i]["pid"]) && r.params[i]["pid"] != "0" {
 			room, isOut := bot.fetchChild(r.params[i]["pid"], r.params[i]["cid"], r.params)
 			if isOut && len(room) >= 3 {
-				debugLog.Println(room)
-				bot.exec(deleteChannel(r.params[i]["cid"]))
-				delCh.Cid = r.params[i]["cid"]
-				delCh.DeletedBy = "Bot: " + bot.ID
-				delCh.DeleteDate = time.Now()
-				room, err := bot.db.GetRecord("rooms", delCh.Cid)
-				if err != nil {
-					errLog.Println("Database error: ", err)
-					return
+				roomsName.WriteString(" " + r.params[i]["channel_name"] + " ")
+				if remove {
+					bot.exec(deleteChannel(r.params[i]["cid"]))
+					delCh.Cid = r.params[i]["cid"]
+					delCh.DeletedBy = "Bot: " + bot.ID
+					delCh.DeleteDate = time.Now()
+					room, err := bot.db.GetRecord("rooms", delCh.Cid)
+					if err != nil {
+						errLog.Println("Database error: ", err)
+						return
+					}
+					if len(room) != 0 {
+						bot.db.DeleteRecord("rooms", delCh.Cid)
+						debugLog.Println(room)
+					}
+					bot.db.AddRecord("deletedRooms", delCh.Cid, delCh)
+					infoLog.Println("Room ", r.params[i]["channel_name"], "deleted by ", bot.ID)
 				}
-				if len(room) != 0 {
-					bot.db.DeleteRecord("rooms", delCh.Cid)
-					debugLog.Println(room)
-				}
-				bot.db.AddRecord("deletedRooms", delCh.Cid, delCh)
-				infoLog.Println("Room ", r.params[i]["channel_name"], "deleted by ", bot.ID)
+
 			}
 		}
 
+	}
+	if !remove {
+		go b.exec(sendMessage("1", id, roomsName.String()))
 	}
 	infoLog.Println("Room cleaning done.")
 	bot.conn.Close()
@@ -607,6 +613,9 @@ func (b *Bot) jumpProtection(r *Response) {
 	u, ok := users[dbID]
 	if !ok {
 		errLog.Println("Nie ma takiego użytkownika w pamięci")
+		return
+	}
+	if u.IsAdmin {
 		return
 	}
 	if u.Moves.MoveStatus != 1 {

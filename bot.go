@@ -183,6 +183,7 @@ func (b *Bot) botSchedules() {
 			infoLog.Println("Ping from bot: ", b.ID, " was send to telnet")
 		case <-cleanRooms.C:
 			if b.ID == master {
+				b.checkIfRoomOutDate(true, "0")
 				infoLog.Println("Check for empty rooms")
 			}
 		case <-registered.C:
@@ -464,6 +465,9 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 			}
 			userClidb, _ := usersByClid[res.params[0]["clid"]]
 			user, _ := users[userClidb]
+			if user.IsAdmin {
+				return
+			}
 			user.BasicInfo.IsPunished = true
 			f, err := strconv.ParseFloat(kara[2], 64)
 			if err != nil {
@@ -671,7 +675,15 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		return
 	//Manually check if room are out of date
 	case strings.Index(r.params[0]["msg"], "!check") == 0:
-		go b.checkIfRoomOutDate()
+		clean := strings.SplitN(r.params[0]["msg"], " ", 2)
+		if len(clean) != 2 {
+			return
+		}
+		if clean[1] == "true" {
+			go b.checkIfRoomOutDate(true, "0")
+			return
+		}
+		b.checkIfRoomOutDate(false, r.params[0]["invokerid"])
 		return
 	//Adds user to admin list if he has admin group status
 	case strings.Index(r.params[0]["msg"], "!addMe") == 0:
@@ -759,7 +771,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		return
 	//test coomand
 	case strings.Index(r.params[0]["msg"], "!test") == 0:
-		registerUserAsPerm(b)
+
 		return
 	//Reconver channel admin on user channels via token
 	case strings.Index(r.params[0]["msg"], "!token") == 0:

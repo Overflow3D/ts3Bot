@@ -340,11 +340,13 @@ func (b *Bot) checkIfRoomOutDate(remove bool, id string) {
 		return
 	}
 	var roomsName bytes.Buffer
+	roomCounter := 0
 	for i := range r.params {
 
 		if isNormalUserArea(r.params[i]["pid"]) && r.params[i]["pid"] != "0" {
 			room, isOut := bot.fetchChild(r.params[i]["pid"], r.params[i]["cid"], r.params)
 			if isOut && len(room) >= 3 {
+				roomCounter++
 				roomsName.WriteString(" " + r.params[i]["channel_name"] + " ")
 				if remove {
 					bot.exec(deleteChannel(r.params[i]["cid"]))
@@ -358,7 +360,6 @@ func (b *Bot) checkIfRoomOutDate(remove bool, id string) {
 					}
 					if len(room) != 0 {
 						bot.db.DeleteRecord("rooms", delCh.Cid)
-						debugLog.Println(room)
 					}
 					bot.db.AddRecord("deletedRooms", delCh.Cid, delCh)
 					infoLog.Println("Room ", r.params[i]["channel_name"], "deleted by ", bot.ID)
@@ -369,7 +370,8 @@ func (b *Bot) checkIfRoomOutDate(remove bool, id string) {
 
 	}
 	if !remove {
-		go b.exec(sendMessage("1", id, roomsName.String()))
+		roomsName.WriteString(" " + strconv.Itoa(roomCounter) + " ")
+		go b.exec(sendMessage("1", id, "Pokoje do usunięcia:"+roomsName.String()))
 	}
 	infoLog.Println("Room cleaning done.")
 	bot.conn.Close()

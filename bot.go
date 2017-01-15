@@ -261,6 +261,7 @@ func (b *Bot) notifyAction(r *Response) {
 				retriveUser.BasicInfo.Punish.OriginTime = (retriveUser.BasicInfo.Punish.OriginTime - retriveUser.BasicInfo.Punish.CurrentTime) + (10 * float64(retriveUser.Moves.Warnings))
 				timeLeft := retriveUser.BasicInfo.Punish.OriginTime - retriveUser.BasicInfo.Punish.CurrentTime
 				strLeft := strconv.FormatFloat(timeLeft, 'f', 1, 64)
+				go b.exec(clientMove(retriveUser.Clid, cfg.PunishRoom))
 				go b.exec(clientPoke(retriveUser.Clid, "[color=red][b]Zostało Ci jeszcze "+strLeft+" sekund na karnym jeżyku, powodzenia :)[b][/color]"))
 				eventLog.Println(retriveUser.Nick, "nie odbył pełnej kary na karnym jeżyku, zostało mu jeszcze", strLeft, "sekund")
 			}
@@ -366,8 +367,8 @@ func (b *Bot) notifyAction(r *Response) {
 			DeleteDate: time.Now(),
 		}
 		b.db.AddRecord("deletedRooms", delChannel.Cid, delChannel)
-		room, err := b.db.GetRecord("rooms", delChannel.Cid)
-		if err != nil || len(room) == 0 {
+		_, err := b.db.GetRecord("rooms", r.params[0]["cid"])
+		if err != nil {
 			errLog.Println("No such room in databse cannot delete it from it")
 			return
 		}
@@ -443,6 +444,9 @@ func (b *Bot) roomFromNotify(r *Response) {
 func (b *Bot) actionMsg(r *Response, u *User) {
 	switch {
 	case strings.Index(r.params[0]["msg"], "!kicks") == 0:
+		if !u.IsAdmin {
+			return
+		}
 		kick := strings.SplitN(r.params[0]["msg"], " ", 3)
 		if len(kick) == 3 {
 			o, e := b.getUserKickBanHistory("kicks", kick[1], kick[2])
@@ -453,23 +457,37 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		}
 		return
 	case strings.Index(r.params[0]["msg"], "!kara") == 0:
+		if !u.IsAdmin {
+			eventLog.Println("Użytkownik ", u.Nick, "próbuje wpisać komende !kara ,a nie jest administratorem")
+			return
+		}
 		kara := strings.SplitN(r.params[0]["msg"], " ", 3)
 		if cfg.PunishRoom == "" {
 			errLog.Println("Pole punish room id jest puste!")
 			return
 		}
+		_, err := strconv.Atoi(kara[1])
+		if err != nil {
+			errLog.Println("Pierwszy parametr nie był intem")
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Pierwszy parametr musi być liczbą"))
+			return
+		}
 		if len(kara) == 3 {
-			res, e := b.exec(clientFind(kara[1]))
+			res, e := b.exec(clientFind(kara[2]))
 			if e != nil {
-				errLog.Println(e)
+				errLog.Println("Nie ma takiego użytkownika w bazie danych", e)
+				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Podany użytkownik nie istnieje. Czy to na pewno[color=red][b] "+kara[2]+"[/b][/color]? Spróbuj ponownie."))
 			}
-			userClidb, _ := usersByClid[res.params[0]["clid"]]
-			user, _ := users[userClidb]
-			if user.IsAdmin {
+			userClidb, userOK := usersByClid[res.params[0]["clid"]]
+			if !userOK {
+				return
+			}
+			user, k := users[userClidb]
+			if !k || user.IsAdmin {
 				return
 			}
 			user.BasicInfo.IsPunished = true
-			f, err := strconv.ParseFloat(kara[2], 64)
+			f, err := strconv.ParseFloat(kara[1], 64)
 			if err != nil {
 				errLog.Println(e)
 			}
@@ -481,7 +499,8 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 			user.BasicInfo.Punish.OriginTime = f
 			go PunishRoom(b, user)
 			go b.exec(clientMove(res.params[0]["clid"], cfg.PunishRoom))
-			go b.exec(clientPoke(res.params[0]["clid"], "[color=red][b]Otrzymałeś "+kara[2]+" sekund kary wczasie rzeczywistym na karnym jeżyku"))
+			go b.exec(clientPoke(res.params[0]["clid"], "[color=red][b]Otrzymałeś "+kara[1]+" sekund kary wczasie rzeczywistym na karnym jeżyku"))
+			go b.exec(sendMessage("1", r.params[0]["invokerid"], "Użytkownik otrzymał karę na "+kara[1]+"sekund jeśli chcesz ją anulować wpisz !kara 0 nick"))
 		}
 		return
 	case strings.Index(r.params[0]["msg"], "!help") == 0:
@@ -517,7 +536,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		u.BasicInfo.ReadRules = true
 		b.db.AddRecord("users", u.Clidb, u)
 		go b.exec(sendMessage("1", r.params[0]["invokerid"], "Dziękujemy za zapoznanie się z regulaminem i życzymy mile spędzonego czasu! :)"))
-		go b.exec(serverGroupAddClient("62", u.Clidb))
+		go b.exec(serverGroupAddClient(cfg.PermGroup, u.Clidb))
 		eventLog.Println(u.Nick, "Zaakceptował regulamin")
 		return
 	case strings.Index(r.params[0]["msg"], "!uptime") == 0:
@@ -615,7 +634,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 				b.db.AddRecord("rooms", cid[0], channel)
 				go b.exec(sendMessage("1", r.params[0]["invokerid"], "Pokój o nazwie "+channel.Name+" z tokenem  [b][color=red]"+v.Token+" [/color][/b]został sukcesywnie utworzony!"))
 				if cinfo.params[0]["clid"] != "" {
-					go b.exec(sendMessage("1", cinfo.params[0]["clid"], "Token dla Twojego kanału to [b][color=red]"+v.Token+" [/color][/b]służy on do odzysania channel Admina."))
+					go b.exec(sendMessage("1", cinfo.params[0]["clid"], "Token dla Twojego kanału to [b][color=red]"+v.Token+" [/color][/b]służy on do odzyskania channel Admina."))
 				} else {
 					go b.exec(sendMessage("1", r.params[0]["clid"], "Nazwa pokoju utworzonego przez Ciebie nie zawiera poprawnej nazwy użytkownika, proszę wysłać mu token, który otrzymałeś w wiadomości prywatnej by naprawić ten błąd"))
 				}
@@ -675,6 +694,9 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		return
 	//Manually check if room are out of date
 	case strings.Index(r.params[0]["msg"], "!check") == 0:
+		if !u.IsAdmin {
+			return
+		}
 		clean := strings.SplitN(r.params[0]["msg"], " ", 2)
 		if len(clean) != 2 {
 			return
@@ -693,7 +715,7 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 			return
 		}
 		for _, uGroup := range userGroups.params {
-			if uGroup["name"] == "Head Admin" {
+			if uGroup["name"] == "Head Admin" || uGroup["name"] == "Admin Server Query" {
 				if u.IsAdmin {
 					eventLog.Println(u.Nick, "jest już wpisany jako administrator!")
 					return

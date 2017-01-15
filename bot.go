@@ -221,7 +221,6 @@ func (b *Bot) notifyAction(r *Response) {
 			return
 		}
 		b.jumpProtection(r)
-		// go b.actionMove(r)
 	case "notifychanneledited":
 		//Add edition note in channel description
 		//For more info who edited the channel
@@ -271,8 +270,6 @@ func (b *Bot) notifyAction(r *Response) {
 				b.db.AddRecord("users", r.params[0]["client_database_id"], userS)
 				users[userS.Clidb] = userS
 				usersByClid[userS.Clid] = userS.Clidb
-				log.Println(len(users))
-				log.Println(len(usersByClid))
 				go func() {
 					msg := customeMsg.RuleOne
 					b.exec(sendMessage("1", r.params[0]["clid"], msg))
@@ -333,10 +330,6 @@ func (b *Bot) notifyAction(r *Response) {
 		delete(users, user.Clidb)
 		delete(usersByClid, r.params[0]["clid"])
 	case "notifychanneldescriptionchanged":
-		//In case if I find function for it
-		//Maybe if you are to lazy to add auto checking
-		//for how much channel is empty, and you say user
-		//to change date if they use room, otherwise edit
 		return
 	case "notifychannelcreated":
 		if r.params[0]["invokeruid"] != "serveradmin" {

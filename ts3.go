@@ -11,13 +11,16 @@ import (
 
 //Config , TeamSpeak 3 bot start up
 type Config struct {
-	Login      string            `json:"Login"`
-	Password   string            `json:"Password"`
-	ServerID   string            `json:"ServerID"`
-	HeadAdmin  string            `json:"HeadAdminCliDB"`
-	Spacer     map[string]string `json:"Spacer"`
-	PunishRoom string            `json:"PunishRoom"`
-	GuestRoom  string            `json:"GuestRoom"`
+	Login          string            `json:"Login"`
+	Password       string            `json:"Password"`
+	ServerID       string            `json:"ServerID"`
+	HeadAdmin      string            `json:"HeadAdminCliDB"`
+	Spacer         map[string]string `json:"Spacer"`
+	BotMainChannel string            `json:"BotMainChannel"`
+	PunishRoom     string            `json:"PunishRoom"`
+	GuestRoom      string            `json:"GuestRoom"`
+	TempGroup      string            `json:"TempGroup"`
+	PermGroup      string            `json:"PermGroup"`
 }
 
 //Messages , Load all custome messages

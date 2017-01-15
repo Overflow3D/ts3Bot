@@ -260,10 +260,6 @@ func (b *Bot) getChannelList() {
 				if len(channel.Admins) != 0 {
 					//Shows channel admin for rooms
 				}
-				// encode, err := json.Marshal(channel)
-				// if err != nil {
-				// 	log.Println(err)
-				// }
 
 				r, e := b.db.GetRecord("rooms", channel.Cid)
 				if e != nil {
@@ -531,7 +527,11 @@ func (b *Bot) getUserKickBanHistory(bucket, clidb, date string) (string, error) 
 func registerUserAsPerm(b *Bot) {
 	for _, u := range users {
 		if time.Since(u.BasicInfo.CreatedAT).Hours() > 280 && !u.BasicInfo.IsRegistered {
-			b.exec(serverGroupAddClient("63", u.Clidb))
+			_, e := b.exec(serverGroupAddClient(cfg.PermGroup, u.Clidb))
+			if e != nil {
+				errLog.Println("Error while adding to perm group", e)
+				return
+			}
 			u.BasicInfo.IsRegistered = true
 			b.db.AddRecord("users", u.Clidb, u)
 			delete(users, u.Clidb)
@@ -571,8 +571,8 @@ func PunishRoom(b *Bot, u *User) {
 				// Move user to Save room and break loop reset punish stats
 				u.BasicInfo.IsPunished = false
 				u.BasicInfo.Punish.CurrentTime = 0
-				delete(users, u.Clidb)
-				users[u.Clidb] = u
+				// delete(users, u.Clidb)
+				// users[u.Clidb] = u
 				b.db.AddRecord("users", u.Clidb, u)
 				return
 			}
@@ -601,7 +601,7 @@ func (t *Token) unmarshalJSON(data []byte) error {
 func (b *Bot) jumpProtection(r *Response) {
 	dbID, k := usersByClid[r.params[0]["clid"]]
 	if !k {
-		errLog.Println("Nie ma takiego użytkownika w pamięci pod clid", r.params[0]["clid"])
+		errLog.Println("Nie ma takiego użytkownika w pamięci pod clid", r.params[0]["clid"], "przenoszenie bota")
 		return
 	}
 	u, ok := users[dbID]
@@ -635,8 +635,13 @@ func (b *Bot) jumpProtection(r *Response) {
 	}
 	if sinceMove < 180 && u.Moves.Number >= 8 {
 		if u.BasicInfo.IsPunished == false {
+			punishTime := float64(180)
+			if u.Moves.Warnings >= 3 {
+				punishTime = 43200
+				u.Moves.Warnings = 0
+			}
 			u.BasicInfo.IsPunished = true
-			u.BasicInfo.Punish = &Punish{float64(u.Moves.Warnings + 1), 180, 0}
+			u.BasicInfo.Punish = &Punish{float64(u.Moves.Warnings + 1), punishTime, 0}
 			go b.exec(clientMove(u.Clid, cfg.PunishRoom))
 			go b.exec(clientPoke(u.Clid, "[color=red][b]180s kary za skakanie[/b][/color]"))
 			go PunishRoom(b, u)

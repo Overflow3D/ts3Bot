@@ -49,25 +49,21 @@ func (b *Bot) execAndIgnore(cmd []*Command, newBot bool) {
 			log.Println(err)
 			return
 		}
-
-		if newBot {
-			b.exec(nickname(b.ID))
-		} else {
-			r, e := b.exec(whoami())
-			if e != nil {
-				return
-			}
-			b.exec(clientMove(r.params[0]["client_id"], "595"))
-		}
 	}
+
+	if newBot {
+		b.exec(nickname(b.ID))
+	}
+	r, e := b.exec(whoami())
+	if e != nil {
+		return
+	}
+	b.exec(clientMove(r.params[0]["client_id"], cfg.BotMainChannel))
 
 	infoLog.Println("Command executed with out any problems, invoked by bot: ", b.ID)
 
 }
 
-//Useless version as dummy ping
-//Not useless if you want to upgrade ts automaticly
-//But then you can change the code =)
 func version() *Command {
 	return &Command{
 		Name: "version",

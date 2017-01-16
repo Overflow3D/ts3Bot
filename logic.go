@@ -40,6 +40,7 @@ type BasicInfo struct {
 	Ban          int
 	IsPunished   bool
 	Punish       *Punish
+	Points       int
 }
 
 //Punish , punishment struct for user
@@ -90,6 +91,7 @@ func newUser(dbID string, clid string, nick string) *User {
 				OriginTime:  0,
 				CurrentTime: 0,
 			},
+			Points: 0,
 		},
 		Spam: &Spam{
 			TokenAttempts:    0,
@@ -542,8 +544,11 @@ func registerUserAsPerm(b *Bot) {
 			}
 			u.BasicInfo.IsRegistered = true
 			b.db.AddRecord("users", u.Clidb, u)
-			delete(users, u.Clidb)
-			users[u.Clidb] = u
+			_, err := b.exec(serverGroupDelClient(cfg.TempGroup, u.Clidb))
+			if err != nil {
+				errLog.Println("Błąd przy usuwaniu grupy 'nowy' użytkownikowi ", u.Nick)
+			}
+
 		}
 	}
 }
@@ -578,10 +583,12 @@ func PunishRoom(b *Bot, u *User) {
 			if u.BasicInfo.Punish.OriginTime < u.BasicInfo.Punish.CurrentTime {
 				// Move user to Save room and break loop reset punish stats
 				u.BasicInfo.IsPunished = false
-				u.BasicInfo.Punish.CurrentTime = 0
-				// delete(users, u.Clidb)
-				// users[u.Clidb] = u
+				u.BasicInfo.Punish = &Punish{0, 0, 0}
 				b.db.AddRecord("users", u.Clidb, u)
+				_, e := b.exec(clientMove(u.Clid, cfg.GuestRoom))
+				if e != nil {
+					errLog.Println("Błąd podczas przenoszenia po odbyciu kary ", e)
+				}
 				return
 			}
 
@@ -661,5 +668,12 @@ func (b *Bot) jumpProtection(r *Response) {
 		u.Moves.Number = 0
 		u.Moves.Warnings++
 		b.db.AddRecord("users", u.Clidb, u)
+	}
+}
+
+func (b *Bot) givePoints() {
+	for _, v := range users {
+		v.BasicInfo.Points = v.BasicInfo.Points + 30
+		b.db.AddRecord("users", v.Clidb, v)
 	}
 }

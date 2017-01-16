@@ -201,7 +201,7 @@ func setChannelAdmin(cldbid string, cid string) *Command {
 	return &Command{
 		Name: "setclientchannelgroup",
 		params: map[string]string{
-			"cgid":   "18",
+			"cgid":   cfg.ChannelAdmin,
 			"cid":    cid,
 			"cldbid": cldbid,
 		},
@@ -281,6 +281,16 @@ func channelFind(name string) *Command {
 func serverGroupAddClient(groupID string, cldbid string) *Command {
 	return &Command{
 		Name: "servergroupaddclient",
+		params: map[string]string{
+			"sgid":   groupID,
+			"cldbid": cldbid,
+		},
+	}
+}
+
+func serverGroupDelClient(groupID string, cldbid string) *Command {
+	return &Command{
+		Name: "servergroupdelclient",
 		params: map[string]string{
 			"sgid":   groupID,
 			"cldbid": cldbid,

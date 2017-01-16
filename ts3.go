@@ -16,6 +16,7 @@ type Config struct {
 	ServerID       string            `json:"ServerID"`
 	HeadAdmin      string            `json:"HeadAdminCliDB"`
 	Spacer         map[string]string `json:"Spacer"`
+	ChannelAdmin   string            `json:"ChannelAdmin"`
 	BotMainChannel string            `json:"BotMainChannel"`
 	PunishRoom     string            `json:"PunishRoom"`
 	GuestRoom      string            `json:"GuestRoom"`

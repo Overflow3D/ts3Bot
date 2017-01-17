@@ -485,6 +485,13 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		return
 	case strings.Index(r.params[0]["msg"], "!test") == 0:
 		go b.exec(sendMessage("1", u.Clid, "Don't mind me I am just here for testing :)"))
+		//registerUserAsPerm(b)
+		return
+	case strings.Index(r.params[0]["msg"], "!turnOffPoke") == 0:
+		r.togglePokeCmd(u, b)
+		return
+	case strings.Index(r.params[0]["msg"], "!turnOffText") == 0:
+		r.togglePrivateMsgCmd(u, b)
 		return
 	case u.IsAdmin && strings.Index(r.params[0]["msg"], "!debugUser") == 0:
 		r.debugUser(u, b)

@@ -102,7 +102,7 @@ func (r *Response) acceptCmd(u *User, b *Bot) {
 	}
 	u.BasicInfo.ReadRules = true
 	b.db.AddRecord("users", u.Clidb, u)
-	go b.exec(sendMessage("1", r.params[0]["invokerid"], "Dziękujemy za zapoznanie się z regulaminem i życzymy mile spędzonego czasu! :)"))
+	go b.exec(sendMessage("1", r.params[0]["invokerid"], customeMsg.RulesAccepted))
 	go b.exec(serverGroupAddClient(cfg.TempGroup, u.Clidb))
 	eventLog.Println(u.Nick, "zaakceptował regulamin")
 }
@@ -379,5 +379,46 @@ func (r *Response) recoverChannelAdminCmd(u *User, b *Bot) {
 		go b.exec(setChannelAdmin(u.Clidb, tok.Cid))
 		infoLog.Println("User", u.Nick, " requested channel admin assign with valid token", tok.Token)
 
+	}
+}
+
+func (r *Response) togglePokeCmd(u *User, b *Bot) {
+	poke := strings.SplitN(r.params[0]["msg"], " ", 2)
+	if len(poke) != 2 {
+		return
+	}
+	id, e := b.exec(getPermissionID("i_client_needed_poke_power"))
+	if e != nil {
+		errLog.Println("Wystąpił błąd przy pobieraniu id pozwolenia")
+		return
+	}
+	value := "50"
+	if poke[1] == "on" {
+		value = "85"
+	}
+	_, er := b.exec(addPermission(u.Clidb, id.params[0]["permid"], value, "0"))
+	if er != nil {
+		errLog.Println(e)
+	}
+}
+
+//i_client_needed_private_textmessage_power
+func (r *Response) togglePrivateMsgCmd(u *User, b *Bot) {
+	text := strings.SplitN(r.params[0]["msg"], " ", 2)
+	if len(text) != 2 {
+		return
+	}
+	id, e := b.exec(getPermissionID("i_client_needed_private_textmessage_power"))
+	if e != nil {
+		errLog.Println("Wystąpił błąd przy pobieraniu id pozwolenia")
+		return
+	}
+	value := "50"
+	if text[1] == "on" {
+		value = "85"
+	}
+	_, er := b.exec(addPermission(u.Clidb, id.params[0]["permid"], value, "0"))
+	if er != nil {
+		errLog.Println(e)
 	}
 }

@@ -307,3 +307,24 @@ func clientPoke(id, msg string) *Command {
 		},
 	}
 }
+
+func getPermissionID(name string) *Command {
+	return &Command{
+		Name: "permidgetbyname",
+		params: map[string]string{
+			"permsid": name,
+		},
+	}
+}
+
+func addPermission(id, permID, value, skip string) *Command {
+	return &Command{
+		Name: "clientaddperm",
+		params: map[string]string{
+			"cldbid":    id,
+			"permid":    permID,
+			"permvalue": value,
+			"permskip":  skip,
+		},
+	}
+}

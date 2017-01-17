@@ -31,6 +31,7 @@ type Messages struct {
 	Commands      string `json:"Commands"`
 	CommandsAdmin string `json:"CommandsAdmin"`
 	Strefy        string `json:"Strefy"`
+	RulesAccepted string `json:"RulesAccepted"`
 }
 
 var (

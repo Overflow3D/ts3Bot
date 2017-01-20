@@ -537,6 +537,14 @@ func (b *Bot) getUserKickBanHistory(bucket, clidb, date string) (string, error) 
 func registerUserAsPerm(b *Bot) {
 	for _, u := range users {
 		if time.Since(u.BasicInfo.CreatedAT).Hours() > 280 && !u.BasicInfo.IsRegistered {
+			rq, _ := b.exec(serverGroupIdsByCliDB(u.Clidb))
+			for _, v := range rq.params {
+				debugLog.Println(v["name"])
+				if v["name"] == "Użytkowniczka" || v["name"] == "Head Admin" || v["name"] == "Administrator" || v["name"] == "Vouched" {
+					u.BasicInfo.IsRegistered = true
+					return
+				}
+			}
 			_, e := b.exec(serverGroupAddClient(cfg.PermGroup, u.Clidb))
 			if e != nil {
 				errLog.Println("Error while adding to perm group", e)

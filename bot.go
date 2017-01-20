@@ -238,9 +238,9 @@ func (b *Bot) notifyAction(r *Response) {
 			retriveUser := &User{}
 			retriveUser.unmarshalJSON(userDB)
 			retriveUser.Clid = r.params[0]["clid"]
+			retriveUser.Nick = r.params[0]["client_nickname"]
 			users[retriveUser.Clidb] = retriveUser
 			usersByClid[r.params[0]["clid"]] = retriveUser.Clidb
-
 			if time.Since(retriveUser.Moves.SinceMove).Seconds() > 600 {
 				retriveUser.Moves.Number = 0
 			}

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
-	"log"
 	"strconv"
 	"time"
 )
@@ -401,7 +400,6 @@ func (b *Bot) fetchChild(pid string, cid string, rooms []map[string]string) ([]s
 		return []string{"Channel still below 7 days"}, false
 	}
 	userRoom = append(userRoom, r.params[0]["seconds_empty"])
-	log.Println(r.params[0]["channel_name"])
 	for _, v := range spacer {
 		if pid == v {
 			for _, room := range rooms {
@@ -422,7 +420,7 @@ func (b *Bot) fetchChild(pid string, cid string, rooms []map[string]string) ([]s
 			}
 		}
 	}
-	log.Println(userRoom)
+
 	return userRoom, true
 }
 

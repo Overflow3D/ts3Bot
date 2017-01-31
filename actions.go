@@ -9,6 +9,77 @@ import (
 	"time"
 )
 
+//actionMsg , seek proper command to execude
+func (b *Bot) actionMsg(r *Response, u *User) {
+	indexOfWhiteSpace := strings.Index(r.params[0]["msg"], " ")
+	if indexOfWhiteSpace == -1 {
+		indexOfWhiteSpace = len(r.params[0]["msg"])
+	}
+	commandKey := strings.ToLower(r.params[0]["msg"][:indexOfWhiteSpace])
+	if strings.Index(commandKey, "!") != 0 {
+		return
+	}
+	switch {
+	case u.IsAdmin && commandKey == "!kicks":
+		r.kicksHistoryCmd(u, b)
+		return
+	case u.IsAdmin && commandKey == "!kara":
+		r.punishUserCmd(u, b)
+		return
+	case commandKey == "!help":
+		r.helpCmd(u, b)
+		return
+	case commandKey == "!strefy":
+		msg := customeMsg.Strefy
+		go b.exec(sendMessage("1", r.params[0]["invokerid"], msg))
+		return
+	case commandKey == "!accept":
+		r.acceptCmd(u, b)
+		return
+	case commandKey == "!uptime":
+		r.upTimeCmd(u, b)
+		return
+	case u.IsAdmin && commandKey == "!quit":
+		r.quitCmd(u, b)
+		return
+	case u.IsAdmin && b.isMaster && commandKey == "!room":
+		r.createChannelCmd(u, b)
+		return
+	case u.IsAdmin && b.isMaster && commandKey == "!create":
+		infoLog.Println("Created by: ", b.ID)
+		r.createNewBotCmd(u, b)
+		return
+	case u.IsAdmin && commandKey == "!check":
+		r.checkIfRoomOutOfDateCmd(u, b)
+		return
+	case commandKey == "!addme":
+		r.addUserAsAdminCmd(u, b)
+		return
+	case commandKey == "!settoken":
+		r.setTokenCmd(u, b)
+		return
+	case commandKey == "!test":
+		go b.exec(sendMessage("1", u.Clid, "Don't mind me I am just here for testing :)"))
+		return
+	case commandKey == "!turnoffpoke":
+		r.togglePokeCmd(u, b)
+		return
+	case commandKey == "!turnofftext":
+		r.togglePrivateMsgCmd(u, b)
+		return
+	case u.IsAdmin && commandKey == "!debuguser":
+		r.debugUser(u, b)
+		return
+	case commandKey == "!token":
+		r.recoverChannelAdminCmd(u, b)
+		return
+	default:
+		warnLog.Println("User invoked unknow command - ", u.Nick, " commad was ", r.params[0]["msg"])
+		go b.exec(sendMessage("1", u.Clid, "Jeśli widzisz tą wiadomość prawdopodbnie wpisałeś złą komende albo nie masz do niej dostępu."))
+	}
+
+}
+
 //kicksHistoryAction, shows history of kicks on certain user
 //!kicks uniqueID time.Time formated
 //!kicks L6bv1FMnkDONcwnf3LMKEpcB5NU= 16-01-2017

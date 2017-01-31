@@ -660,16 +660,21 @@ func (b *Bot) jumpProtection(r *Response) {
 		b.db.AddRecord("users", u.Clidb, u)
 	}
 	if sinceMove < 180 && u.Moves.Number >= 8 {
+		msg := "[color=red][b]180s kary za skakanie[/b][/color]"
 		if u.BasicInfo.IsPunished == false {
 			punishTime := float64(180)
+			if u.Moves.Warnings == 2 {
+				punishTime = 1800
+				msg = "[color=red][b]30min kary, przy następym otrzeżeniu 2h.[/b][/color]"
+			}
 			if u.Moves.Warnings >= 3 {
-				punishTime = 43200
-				u.Moves.Warnings = 0
+				punishTime = 7200
+				msg = "[color=red][b]2h kary za skakanie[/b][/color]"
 			}
 			u.BasicInfo.IsPunished = true
 			u.BasicInfo.Punish = &Punish{float64(u.Moves.Warnings + 1), punishTime, 0}
 			go b.exec(clientMove(u.Clid, cfg.PunishRoom))
-			go b.exec(clientPoke(u.Clid, "[color=red][b]180s kary za skakanie[/b][/color]"))
+			go b.exec(clientPoke(u.Clid, msg))
 			go PunishRoom(b, u)
 
 		}

@@ -65,6 +65,8 @@ func (r *Response) punishUserCmd(u *User, b *Bot) {
 	}
 	if f == 0 {
 		debugLog.Println("Anulowanie kary dla użytkownika", user.Nick)
+		go b.exec(clientMove(u.Clid, cfg.GuestRoom))
+		go b.exec(clientPoke(res.params[0]["clid"], "[color=red][b]Twoja kara została anulowana przez Admina[/b][/color]"))
 		user.BasicInfo.IsPunished = false
 		return
 	}

@@ -62,15 +62,15 @@ func (b *Bot) notifyAction(r *Response) {
 
 		if r.params[0]["reasonid"] == "5" {
 			infoLog.Println(user.Nick, "kicked from server by", r.params[0]["invokername"])
-			user.BasicInfo.Kick++
-			b.addKickBan("kicks", user.Clidb, r.params[0]["reasonmsg"], r.params[0]["invokername"])
+			// user.BasicInfo.Kick++
+			// b.addKickBan("kicks", user.Clidb, r.params[0]["reasonmsg"], r.params[0]["invokername"])
 
 		}
 
 		if r.params[0]["reasonid"] == "6" {
 			infoLog.Println(user.Nick, "banned from server by", r.params[0]["invokername"])
-			user.BasicInfo.Ban++
-			b.addKickBan("bans", user.Clidb, r.params[0]["reasonmsg"], r.params[0]["invokername"])
+			// user.BasicInfo.Ban++
+			// b.addKickBan("bans", user.Clidb, r.params[0]["reasonmsg"], r.params[0]["invokername"])
 		}
 
 		if r.params[0]["reasonid"] == "4" {
@@ -162,11 +162,11 @@ func (r *Response) onClientEnterView(b *Bot) {
 				b.exec(sendMessage("1", retriveUser.Clid, msg))
 			}()
 		}
-		if retriveUser.BasicInfo.IsPunished == true {
+		if retriveUser.Punish.IsPunished == true {
 			go b.exec(clientMove(retriveUser.Clid, cfg.PunishRoom))
 			go PunishRoom(b, retriveUser)
-			retriveUser.BasicInfo.Punish.OriginTime = (retriveUser.BasicInfo.Punish.OriginTime - retriveUser.BasicInfo.Punish.CurrentTime) + (10 * float64(retriveUser.Moves.Warnings))
-			timeLeft := retriveUser.BasicInfo.Punish.OriginTime - retriveUser.BasicInfo.Punish.CurrentTime
+			retriveUser.Punish.OriginTime = (retriveUser.Punish.OriginTime - retriveUser.Punish.CurrentTime) + (10 * float64(retriveUser.Moves.Warnings))
+			timeLeft := retriveUser.Punish.OriginTime - retriveUser.Punish.CurrentTime
 			strLeft := strconv.FormatFloat(timeLeft, 'f', 1, 64)
 			go b.exec(clientMove(retriveUser.Clid, cfg.PunishRoom))
 			go b.exec(clientPoke(retriveUser.Clid, "[color=red][b]Zostało Ci jeszcze "+strLeft+" sekund na karnym jeżyku, powodzenia :)[b][/color]"))
@@ -175,7 +175,7 @@ func (r *Response) onClientEnterView(b *Bot) {
 
 	} else {
 		if r.params[0]["client_database_id"] != "1" && r.params[0]["client_unique_identifier"] != "ServerQuery" {
-			userS := newUser(r.params[0]["client_database_id"], r.params[0]["clid"], r.params[0]["client_nickname"])
+			userS := createUser(r.params[0]["client_database_id"], r.params[0]["clid"], r.params[0]["client_nickname"])
 			b.db.AddRecord("users", r.params[0]["client_database_id"], userS)
 			users[userS.Clidb] = userS
 			usersByClid[userS.Clid] = userS.Clidb

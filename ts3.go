@@ -22,6 +22,7 @@ type Config struct {
 	GuestRoom      string            `json:"GuestRoom"`
 	TempGroup      string            `json:"TempGroup"`
 	PermGroup      string            `json:"PermGroup"`
+	OmittedRangs   []string          `json:"OmittedRangs"`
 }
 
 //Messages , Load all custome messages

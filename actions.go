@@ -20,9 +20,9 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 		return
 	}
 	switch {
-	case u.IsAdmin && commandKey == "!kicks":
-		r.kicksHistoryCmd(u, b)
-		return
+	// case u.IsAdmin && commandKey == "!kicks":
+	// 	r.kicksHistoryCmd(u, b)
+	// 	return
 	case u.IsAdmin && commandKey == "!kara":
 		r.punishUserCmd(u, b)
 		return
@@ -83,18 +83,18 @@ func (b *Bot) actionMsg(r *Response, u *User) {
 //kicksHistoryAction, shows history of kicks on certain user
 //!kicks uniqueID time.Time formated
 //!kicks L6bv1FMnkDONcwnf3LMKEpcB5NU= 16-01-2017
-func (r *Response) kicksHistoryCmd(u *User, b *Bot) {
-	kick := strings.SplitN(r.params[0]["msg"], " ", 3)
-	if len(kick) != 3 {
-		warnLog.Println("Akcja kick wymaga więcej parametrów", u.Nick)
-		return
-	}
-	o, e := b.getUserKickBanHistory("kicks", kick[1], kick[2])
-	if e != nil {
-		errLog.Println(e)
-	}
-	go b.exec(sendMessage("1", r.params[0]["invokerid"], o))
-}
+// func (r *Response) kicksHistoryCmd(u *User, b *Bot) {
+// 	kick := strings.SplitN(r.params[0]["msg"], " ", 3)
+// 	if len(kick) != 3 {
+// 		warnLog.Println("Akcja kick wymaga więcej parametrów", u.Nick)
+// 		return
+// 	}
+// 	o, e := b.getUserKickBanHistory("kicks", kick[1], kick[2])
+// 	if e != nil {
+// 		errLog.Println(e)
+// 	}
+// 	go b.exec(sendMessage("1", r.params[0]["invokerid"], o))
+// }
 
 //punishUserCmd, moves user to sticky channel
 //in which he needs to stay in for punish time
@@ -129,7 +129,7 @@ func (r *Response) punishUserCmd(u *User, b *Bot) {
 	if !k || user.IsAdmin {
 		return
 	}
-	user.BasicInfo.IsPunished = true
+	user.Punish.IsPunished = true
 	f, err := strconv.ParseFloat(punish[1], 64)
 	if err != nil {
 		errLog.Println(e)
@@ -138,10 +138,10 @@ func (r *Response) punishUserCmd(u *User, b *Bot) {
 		debugLog.Println("Anulowanie kary dla użytkownika", user.Nick)
 		go b.exec(clientMove(u.Clid, cfg.GuestRoom))
 		go b.exec(clientPoke(res.params[0]["clid"], "[color=red][b]Twoja kara została anulowana przez Admina[/b][/color]"))
-		user.BasicInfo.IsPunished = false
+		user.Punish.IsPunished = false
 		return
 	}
-	user.BasicInfo.Punish.OriginTime = f
+	user.Punish.OriginTime = f
 	go PunishRoom(b, user)
 	go b.exec(clientMove(res.params[0]["clid"], cfg.PunishRoom))
 	go b.exec(clientPoke(res.params[0]["clid"], "[color=red][b]Otrzymałeś "+punish[1]+" sekund kary wczasie rzeczywistym na karnym jeżyku"))

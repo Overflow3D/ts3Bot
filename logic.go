@@ -3,107 +3,12 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"strconv"
 	"time"
 )
 
-//User , ...
-type User struct {
-	Clidb     string
-	Clid      string
-	Nick      string
-	Moves     *Moves
-	BasicInfo *BasicInfo
-	Spam      *Spam
-	Perm      int
-	IsAdmin   bool
-}
-
-//Moves , how much time user moved
-type Moves struct {
-	Number      int
-	SinceMove   time.Time
-	Warnings    int
-	RoomTracker map[int64]string
-	MoveStatus  int
-}
-
-//BasicInfo , user basic info
-type BasicInfo struct {
-	ReadRules    bool
-	CreatedAT    time.Time
-	LastSeen     time.Time
-	IsRegistered bool
-	Kick         int
-	Ban          int
-	IsPunished   bool
-	Punish       *Punish
-	Points       int
-}
-
-//Punish , punishment struct for user
-type Punish struct {
-	Multi       float64
-	OriginTime  float64
-	CurrentTime float64
-}
-
-//Spam , user spam info
-type Spam struct {
-	TokenAttempts    int
-	LastTokenAttempt time.Time
-}
-
-//KickAndBan , struct with kicks and bans of user
-type KickAndBan struct {
-	Invoker string
-	Reason  string
-}
-
 var users = make(map[string]*User)
 var usersByClid = make(map[string]string)
-
-func newUser(dbID string, clid string, nick string) *User {
-	newUser := &User{
-		Clidb: dbID,
-		Clid:  clid,
-		Nick:  nick,
-		Perm:  0,
-		Moves: &Moves{
-			Number:      0,
-			SinceMove:   time.Now(),
-			Warnings:    0,
-			RoomTracker: make(map[int64]string),
-			MoveStatus:  0,
-		},
-		BasicInfo: &BasicInfo{
-			ReadRules:    false,
-			CreatedAT:    time.Now(),
-			LastSeen:     time.Now(),
-			IsRegistered: false,
-			Kick:         0,
-			Ban:          0,
-			IsPunished:   false,
-			Punish: &Punish{
-				Multi:       0,
-				OriginTime:  0,
-				CurrentTime: 0,
-			},
-			Points: 0,
-		},
-		Spam: &Spam{
-			TokenAttempts:    0,
-			LastTokenAttempt: time.Now(),
-		},
-	}
-	if dbID == cfg.HeadAdmin {
-		eventLog.Println("HeadAdmin set to id", dbID, "with nickname ", newUser.Nick)
-		newUser.IsAdmin = true
-		newUser.Perm = 9999
-	}
-	return newUser
-}
 
 func (b *Bot) loadUsers() error {
 	lists, err := b.exec(clientList())
@@ -124,7 +29,7 @@ func (b *Bot) loadUsers() error {
 			}
 			if len(record) == 0 {
 				added++
-				user := newUser(userTS["client_database_id"], userTS["clid"], userTS["client_nickname"])
+				user := createUser(userTS["client_database_id"], userTS["clid"], userTS["client_nickname"])
 				users[userTS["client_database_id"]] = user
 				usersByClid[userTS["clid"]] = userTS["client_database_id"]
 				b.db.AddRecord("users", user.Clidb, user)
@@ -162,7 +67,7 @@ func addAdmin(usr string, bot *Bot, headAdmin bool) {
 		user.IsAdmin = true
 		bot.db.AddRecord("users", user.Clidb, user)
 		if headAdmin {
-			user.Perm = 9999
+			user.Admin.Perms = 9999
 			infoLog.Println("user", usr, "was set as an HeadAdmin")
 		} else {
 			infoLog.Println("user", usr, "was set as an Admin")
@@ -462,75 +367,75 @@ func (u *User) checkTokeAttempts(valid []byte) (string, bool) {
 	return "Powinieneś odzyskać dostęp Channel Admina na swoim kanale, w razie problemów skontaktuj się z Administratorem.", true
 }
 
-func (b *Bot) addKickBan(bucket, clidb, reason, invoker string) {
-	kicks, err := b.db.GetRecordSubBucket("users", bucket, clidb)
-	kickBan := &KickAndBan{Invoker: invoker, Reason: reason}
-	if err != nil {
-		return
-	}
-	m := make(map[string][]*KickAndBan)
-	time := time.Now()
-	s := time.Format("02-01-2006")
-	if len(kicks) == 0 {
-		var kac []*KickAndBan
-		kac = append(kac, kickBan)
-		m[s] = kac
-		b.db.AddRecordSubBucket("users", bucket, clidb, m)
-		return
-	}
-
-	err = json.Unmarshal(kicks, &m)
-	if err != nil {
-		return
-	}
-	today, ok := m[s]
-	if !ok {
-		var kac []*KickAndBan
-		kac = append(kac, kickBan)
-		m[s] = kac
-		b.db.AddRecordSubBucket("users", bucket, clidb, m)
-		return
-	}
-
-	today = append(today, kickBan)
-	m[s] = today
-	b.db.AddRecordSubBucket("users", bucket, clidb, m)
-	return
-}
-
-func (b *Bot) getUserKickBanHistory(bucket, clidb, date string) (string, error) {
-	userInfo, e := b.exec(clientDBID(clidb, "-uid"))
-	if e != nil {
-		errLog.Println(e)
-		return "", e
-	}
-	bans, err := b.db.GetRecordSubBucket("users", bucket, userInfo.params[0]["cldbid"])
-	if err != nil {
-		debugLog.Println(err)
-		return "", err
-	}
-	if len(bans) == 0 {
-		return "", errors.New("Nie kicków/banów dla danej osoby")
-	}
-	userKickBan := make(map[string][]*KickAndBan)
-	err = json.Unmarshal(bans, &userKickBan)
-	if err != nil {
-		return "", err
-	}
-	var buffer bytes.Buffer
-	KickBan, ok := userKickBan[date]
-	if !ok {
-		return "", errors.New("Nie ma kicków/banów dla danego dnia")
-	}
-	buffer.WriteString("\nWyniki dla podanej operacji to: ")
-	for _, v := range KickBan {
-		if v.Reason == "" {
-			v.Reason = "Brak powodu"
-		}
-		buffer.WriteString("\n [color=green][b]Od:[/b][/color] " + v.Invoker + " [color=green][b]Powód:[/b][/color] " + v.Reason)
-	}
-	return buffer.String(), nil
-}
+// func (b *Bot) addKickBan(bucket, clidb, reason, invoker string) {
+// 	kicks, err := b.db.GetRecordSubBucket("users", bucket, clidb)
+// 	kickBan := &KickAndBan{Invoker: invoker, Reason: reason}
+// 	if err != nil {
+// 		return
+// 	}
+// 	m := make(map[string][]*KickAndBan)
+// 	time := time.Now()
+// 	s := time.Format("02-01-2006")
+// 	if len(kicks) == 0 {
+// 		var kac []*KickAndBan
+// 		kac = append(kac, kickBan)
+// 		m[s] = kac
+// 		b.db.AddRecordSubBucket("users", bucket, clidb, m)
+// 		return
+// 	}
+//
+// 	err = json.Unmarshal(kicks, &m)
+// 	if err != nil {
+// 		return
+// 	}
+// 	today, ok := m[s]
+// 	if !ok {
+// 		var kac []*KickAndBan
+// 		kac = append(kac, kickBan)
+// 		m[s] = kac
+// 		b.db.AddRecordSubBucket("users", bucket, clidb, m)
+// 		return
+// 	}
+//
+// 	today = append(today, kickBan)
+// 	m[s] = today
+// 	b.db.AddRecordSubBucket("users", bucket, clidb, m)
+// 	return
+// }
+//
+// func (b *Bot) getUserKickBanHistory(bucket, clidb, date string) (string, error) {
+// 	userInfo, e := b.exec(clientDBID(clidb, "-uid"))
+// 	if e != nil {
+// 		errLog.Println(e)
+// 		return "", e
+// 	}
+// 	bans, err := b.db.GetRecordSubBucket("users", bucket, userInfo.params[0]["cldbid"])
+// 	if err != nil {
+// 		debugLog.Println(err)
+// 		return "", err
+// 	}
+// 	if len(bans) == 0 {
+// 		return "", errors.New("Nie kicków/banów dla danej osoby")
+// 	}
+// 	userKickBan := make(map[string][]*KickAndBan)
+// 	err = json.Unmarshal(bans, &userKickBan)
+// 	if err != nil {
+// 		return "", err
+// 	}
+// 	var buffer bytes.Buffer
+// 	KickBan, ok := userKickBan[date]
+// 	if !ok {
+// 		return "", errors.New("Nie ma kicków/banów dla danego dnia")
+// 	}
+// 	buffer.WriteString("\nWyniki dla podanej operacji to: ")
+// 	for _, v := range KickBan {
+// 		if v.Reason == "" {
+// 			v.Reason = "Brak powodu"
+// 		}
+// 		buffer.WriteString("\n [color=green][b]Od:[/b][/color] " + v.Invoker + " [color=green][b]Powód:[/b][/color] " + v.Reason)
+// 	}
+// 	return buffer.String(), nil
+// }
 
 func registerUserAsPerm(b *Bot) {
 	for _, u := range users {
@@ -538,9 +443,11 @@ func registerUserAsPerm(b *Bot) {
 			rq, _ := b.exec(serverGroupIdsByCliDB(u.Clidb))
 			for _, v := range rq.params {
 				debugLog.Println(v["name"])
-				if v["name"] == "Użytkowniczka" || v["name"] == "Head Admin" || v["name"] == "Administrator" || v["name"] == "Vouched" {
-					u.BasicInfo.IsRegistered = true
-					return
+				for _, skipRang := range cfg.OmittedRangs {
+					if v["name"] == skipRang {
+						u.BasicInfo.IsRegistered = true
+						return
+					}
 				}
 			}
 			_, e := b.exec(serverGroupAddClient(cfg.PermGroup, u.Clidb))
@@ -577,19 +484,18 @@ func PunishRoom(b *Bot, u *User) {
 			}
 
 			userRealTime, _ := users[u.Clidb]
-			if userRealTime.BasicInfo.IsPunished == false {
+			if userRealTime.Punish.IsPunished == false {
 				eventLog.Println("Kara przerwane przez administratora")
-				u.BasicInfo.IsPunished = userRealTime.BasicInfo.IsPunished
-				u.BasicInfo.Punish = &Punish{0, 0, 0}
+				u.Punish.IsPunished = userRealTime.Punish.IsPunished
+				u.Punish = &Punish{false, 0, 0, 0}
 				b.db.AddRecord("users", u.Clidb, u)
 				go b.exec(clientMove(u.Clidb, cfg.GuestRoom))
 				return
 			}
 
-			if u.BasicInfo.Punish.OriginTime < u.BasicInfo.Punish.CurrentTime {
+			if u.Punish.OriginTime < u.Punish.CurrentTime {
 				// Move user to Save room and break loop reset punish stats
-				u.BasicInfo.IsPunished = false
-				u.BasicInfo.Punish = &Punish{0, 0, 0}
+				u.Punish = &Punish{false, 0, 0, 0}
 				b.db.AddRecord("users", u.Clidb, u)
 				_, e := b.exec(clientMove(u.Clid, cfg.GuestRoom))
 				if e != nil {
@@ -599,7 +505,7 @@ func PunishRoom(b *Bot, u *User) {
 			}
 
 			if res.params[0]["client_output_muted"] != "1" {
-				u.BasicInfo.Punish.CurrentTime = u.BasicInfo.Punish.CurrentTime + 2
+				u.Punish.CurrentTime = u.Punish.CurrentTime + 2
 			}
 
 		}
@@ -659,7 +565,7 @@ func (b *Bot) jumpProtection(r *Response) {
 	}
 	if sinceMove < 180 && u.Moves.Number >= 8 {
 		msg := "[color=red][b]180s kary za skakanie[/b][/color]"
-		if u.BasicInfo.IsPunished == false {
+		if u.Punish.IsPunished == false {
 			punishTime := float64(180)
 			if u.Moves.Warnings == 2 {
 				punishTime = 1800
@@ -669,8 +575,7 @@ func (b *Bot) jumpProtection(r *Response) {
 				punishTime = 7200
 				msg = "[color=red][b]2h kary za skakanie[/b][/color]"
 			}
-			u.BasicInfo.IsPunished = true
-			u.BasicInfo.Punish = &Punish{float64(u.Moves.Warnings + 1), punishTime, 0}
+			u.Punish = &Punish{true, float64(u.Moves.Warnings + 1), punishTime, 0}
 			go b.exec(clientMove(u.Clid, cfg.PunishRoom))
 			go b.exec(clientPoke(u.Clid, msg))
 			go PunishRoom(b, u)
@@ -683,8 +588,8 @@ func (b *Bot) jumpProtection(r *Response) {
 }
 
 func (b *Bot) givePoints() {
-	for _, v := range users {
-		v.BasicInfo.Points = v.BasicInfo.Points + 30
-		b.db.AddRecord("users", v.Clidb, v)
+	for _, user := range users {
+		user.Points.Amount = user.Points.Amount + 30
+		b.db.AddRecord("users", user.Clidb, user)
 	}
 }
